@@ -680,6 +680,38 @@ video {
   visibility: hidden;
 }
 
+.text-black {
+  color: #000000;
+}
+
+.glow-green {
+  box-shadow: 0 0 18px rgba(210, 255, 100, 0.55);
+}
+
+.hover\:glow-green:hover {
+  box-shadow: 0 0 18px rgba(210, 255, 100, 0.55);
+}
+
+.glow-blue {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
+}
+
+.glow-red {
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.45);
+}
+
+.scale-105 {
+  transform: scale(1.05);
+}
+
+.pl-5 {
+  padding-left: 1.25rem;
+}
+
+.shrink-0 {
+  flex-shrink: 0;
+}
+
 .col-span-12 {
   grid-column: span 12 / span 12;
 }
@@ -2545,6 +2577,10 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .md\:col-span-2 {
+    grid-column: span 2 / span 2;
+  }
+
   .md\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2599,6 +2635,10 @@ body {
     grid-column: span 4 / span 4;
   }
 
+  .lg\:col-span-8 {
+    grid-column: span 8 / span 8;
+  }
+
   .lg\:grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2633,6 +2673,7 @@ body {
 .border-team-blue { border-color: #3b82f6; }
 .border-team-blue\\/40 { border-color: rgba(59, 130, 246, 0.4); }
 .border-team-blue\\/50 { border-color: rgba(59, 130, 246, 0.5); }
+.border-team-blue\\/30 { border-color: rgba(59, 130, 246, 0.3); }
 .glow-team-blue { box-shadow: 0 0 15px rgba(59, 130, 246, 0.4); }
 .drop-glow-team-blue { filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5)); }
 .hover\\:text-team-blue:hover { color: #3b82f6; }
@@ -2650,6 +2691,15 @@ body {
 .border-team-red { border-color: #ef4444; }
 .border-team-red\\/40 { border-color: rgba(239, 68, 68, 0.4); }
 .border-team-red\\/50 { border-color: rgba(239, 68, 68, 0.5); }
+.border-team-red\\/30 { border-color: rgba(239, 68, 68, 0.3); }
+
+.bg-team-blue-light { background-color: rgba(59, 130, 246, 0.08); }
+.bg-team-red-light { background-color: rgba(239, 68, 68, 0.08); }
+.border-team-blue-light { border-color: rgba(96, 165, 250, 0.45); }
+.border-team-red-light { border-color: rgba(248, 113, 113, 0.45); }
+.text-team-blue-light { color: rgba(96, 165, 250, 0.65); }
+.text-team-red-light { color: rgba(248, 113, 113, 0.65); }
+.hover\\:border-electric-green\\/60:hover { border-color: rgba(210, 255, 100, 0.6); }
 .glow-team-red { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
 .drop-glow-team-red { filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.5)); }
 .hover\\:text-team-red:hover { color: #ef4444; }
@@ -2657,3 +2707,27 @@ body {
 .hover\\:border-team-red:hover { border-color: #ef4444; }
 .hover\\:border-team-red\\/50:hover { border-color: rgba(239, 68, 68, 0.5); }
 .hover\\:glow-team-red:hover { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+
+/* Draft simulator extras */
+.border-dashed { border-style: dashed; }
+.border-l-electric-green { border-left-color: #d2ff64; }
+.border-r-electric-green { border-right-color: #d2ff64; }
+.border-r-team-red { border-right-color: #ef4444; }
+.ring-2 { box-shadow: 0 0 0 2px var(--ring-color, rgba(255,255,255,0.2)); }
+.ring-team-blue\\/50 { --ring-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); }
+.ring-team-red\\/50 { --ring-color: rgba(239, 68, 68, 0.5); box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.5); }
+.ring-electric-green\\/30 { box-shadow: 0 0 0 2px rgba(210, 255, 100, 0.3); }
+.bg-gradient-to-br { background-image: linear-gradient(to bottom right, var(--tw-gradient-stops)); }
+.from-team-blue\\/10 { --tw-gradient-from: rgba(59, 130, 246, 0.1); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+.from-team-blue\\/5 { --tw-gradient-from: rgba(59, 130, 246, 0.05); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+.from-black\\/60 { --tw-gradient-from: rgba(0, 0, 0, 0.6); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+.via-surface-container\\/40 { --tw-gradient-stops: var(--tw-gradient-from), rgba(26, 26, 26, 0.4), var(--tw-gradient-to); }
+.via-electric-green\\/5 { --tw-gradient-stops: var(--tw-gradient-from), rgba(210, 255, 100, 0.05), var(--tw-gradient-to); }
+.to-black\\/60 { --tw-gradient-to: rgba(0, 0, 0, 0.6); }
+.to-transparent { --tw-gradient-to: transparent; }
+.to-team-red\\/5 { --tw-gradient-to: rgba(239, 68, 68, 0.05); }
+.from-team-red\\/10 { --tw-gradient-from: rgba(239, 68, 68, 0.1); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+.flex-1 { flex: 1 1 0%; }
+.leading-relaxed { line-height: 1.625; }
+.hover\\:bg-electric-green\\/90:hover { background-color: rgba(210, 255, 100, 0.9); }
+.hover\\:bg-team-blue\\/30:hover { background-color: rgba(59, 130, 246, 0.3); }
