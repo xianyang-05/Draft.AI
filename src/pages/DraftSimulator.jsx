@@ -1,8 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SideNavBar from '../components/SideNavBar';
 import { Link } from 'react-router-dom';
 import { champions } from '../data/champions';
 import { predictWinRate } from '../utils/predictWinRate';
+import { getAIPickOrBan } from '../utils/ollamaClient';
+
+const DRAFT_SEQUENCE = [
+  { team: 'blue', action: 'ban', label: 'B1' },
+  { team: 'red', action: 'ban', label: 'R1' },
+  { team: 'blue', action: 'ban', label: 'B2' },
+  { team: 'red', action: 'ban', label: 'R2' },
+  { team: 'blue', action: 'ban', label: 'B3' },
+  { team: 'red', action: 'ban', label: 'R3' },
+  { team: 'blue', action: 'pick', label: 'B1' },
+  { team: 'red', action: 'pick', label: 'R1' },
+  { team: 'red', action: 'pick', label: 'R2' },
+  { team: 'blue', action: 'pick', label: 'B2' },
+  { team: 'blue', action: 'pick', label: 'B3' },
+  { team: 'red', action: 'pick', label: 'R3' },
+  { team: 'red', action: 'ban', label: 'R4' },
+  { team: 'blue', action: 'ban', label: 'B4' },
+  { team: 'red', action: 'ban', label: 'R5' },
+  { team: 'blue', action: 'ban', label: 'B5' },
+  { team: 'red', action: 'pick', label: 'R4' },
+  { team: 'blue', action: 'pick', label: 'B4' },
+  { team: 'blue', action: 'pick', label: 'B5' },
+  { team: 'red', action: 'pick', label: 'R5' },
+];
 
 export default function DraftSimulator() {
   const [blueTeam, setBlueTeam] = useState([
@@ -21,6 +45,12 @@ export default function DraftSimulator() {
     { role: 'SUPPORT', champion: null },
   ]);
 
+  const [blueBans, setBlueBans] = useState([null, null, null, null, null]);
+  const [redBans, setRedBans] = useState([null, null, null, null, null]);
+
+  const [draftMode, setDraftMode] = useState('simulation');
+  const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
+
   const [activeSlot, setActiveSlot] = useState(null);
   const [blueWinChance, setBlueWinChance] = useState(50);
   const [predictionReport, setPredictionReport] = useState({
@@ -30,35 +60,174 @@ export default function DraftSimulator() {
     recommendedBans: []
   });
 
-  // Recalculate win rate and report reactively whenever draft picks change
-  React.useEffect(() => {
-    predictWinRate(blueTeam, redTeam).then(prediction => {
+  const [isAITurnProcessing, setIsAITurnProcessing] = useState(false);
+  const [roleFilter, setRoleFilter] = useState('ALL');
+  const [draftLog, setDraftLog] = useState([]);
+
+  useEffect(() => {
+    const targetTeam = draftMode === 'blue' ? 'blue' : (draftMode === 'red' ? 'red' : (currentTurnIndex < DRAFT_SEQUENCE.length ? DRAFT_SEQUENCE[currentTurnIndex].team : 'blue'));
+    predictWinRate(blueTeam, redTeam, blueBans, redBans, targetTeam).then(prediction => {
       setBlueWinChance(prediction.blueWinChance);
       setPredictionReport(prediction);
     }).catch(err => {
       console.error("Error predicting win rate:", err);
     });
-  }, [blueTeam, redTeam]);
+  }, [blueTeam, redTeam, blueBans, redBans, draftMode, currentTurnIndex]);
 
-  const handleSlotClick = (team, index, role) => {
-    if (activeSlot && activeSlot.team === team && activeSlot.index === index) {
+  useEffect(() => {
+    if (currentTurnIndex >= DRAFT_SEQUENCE.length) return;
+    const currentTurn = DRAFT_SEQUENCE[currentTurnIndex];
+    
+    let isAITurn = false;
+    if (draftMode === 'blue' && currentTurn.team === 'red') isAITurn = true;
+    if (draftMode === 'red' && currentTurn.team === 'blue') isAITurn = true;
+
+    if (isAITurn && !isAITurnProcessing) {
+      setIsAITurnProcessing(true);
+      setActiveSlot(null);
+      
+      const doAITurn = async () => {
+        // Delay for realistic pacing without triggering cleanup cancellation
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const champ = await getAIPickOrBan({
+          blueTeam, redTeam, 
+          blueBans: blueBans.filter(c => c).map(c => c.name), 
+          redBans: redBans.filter(c => c).map(c => c.name), 
+          action: currentTurn.action, 
+          team: currentTurn.team
+        });
+        
+        if (champ) {
+          let pickedRole = null;
+          if (currentTurn.action === 'pick') {
+            const teamPicks = currentTurn.team === 'blue' ? [...blueTeam] : [...redTeam];
+            const emptyIdx = teamPicks.findIndex(s => s.champion === null);
+            if (emptyIdx !== -1) {
+              teamPicks[emptyIdx].champion = champ;
+              pickedRole = teamPicks[emptyIdx].role;
+              if (currentTurn.team === 'blue') setBlueTeam(teamPicks);
+              else setRedTeam(teamPicks);
+            }
+          } else {
+            const teamBans = currentTurn.team === 'blue' ? [...blueBans] : [...redBans];
+            const emptyIdx = teamBans.findIndex(c => c === null);
+            if (emptyIdx !== -1) {
+              teamBans[emptyIdx] = champ;
+              if (currentTurn.team === 'blue') setBlueBans(teamBans);
+              else setRedBans(teamBans);
+            }
+          }
+          
+          setDraftLog(prev => [
+            ...prev,
+            {
+              round: prev.length + 1,
+              label: currentTurn.label,
+              team: currentTurn.team,
+              action: currentTurn.action.toUpperCase(),
+              champion: champ.name,
+              role: pickedRole
+            }
+          ]);
+
+          setCurrentTurnIndex(prev => prev + 1);
+        }
+        setIsAITurnProcessing(false);
+      };
+      
+      doAITurn();
+    }
+  }, [currentTurnIndex, draftMode, blueTeam, redTeam, blueBans, redBans]);
+
+  const currentTurn = currentTurnIndex < DRAFT_SEQUENCE.length ? DRAFT_SEQUENCE[currentTurnIndex] : null;
+
+  const nextBlueBanIdx = blueBans.findIndex(b => b === null);
+  const nextRedBanIdx = redBans.findIndex(b => b === null);
+  const nextBluePickIdx = blueTeam.findIndex(t => t.champion === null);
+  const nextRedPickIdx = redTeam.findIndex(t => t.champion === null);
+
+  const handleSlotClick = (team, index, type, role = null) => {
+    if (isAITurnProcessing) return;
+    
+    if (draftMode !== 'simulation') {
+      if (!currentTurn) return;
+      if (draftMode === 'blue' && currentTurn.team === 'red') return;
+      if (draftMode === 'red' && currentTurn.team === 'blue') return;
+      
+      if (currentTurn.team !== team || currentTurn.action !== type) {
+        return;
+      }
+    }
+
+    // Must be clicking an empty slot
+    if (type === 'pick') {
+      const teamArr = team === 'blue' ? blueTeam : redTeam;
+      if (teamArr[index].champion !== null) return;
+    } else {
+      const teamBansArr = team === 'blue' ? blueBans : redBans;
+      if (teamBansArr[index] !== null) return;
+    }
+
+    if (activeSlot && activeSlot.team === team && activeSlot.index === index && activeSlot.type === type) {
       setActiveSlot(null);
     } else {
-      setActiveSlot({ team, index, role });
+      setActiveSlot({ team, index, type, role });
+      setRoleFilter('ALL');
     }
   };
 
   const handleChampionSelect = (champ) => {
-    if (activeSlot.team === 'blue') {
-      const newTeam = [...blueTeam];
-      newTeam[activeSlot.index].champion = champ;
-      setBlueTeam(newTeam);
+    if (!activeSlot) return;
+
+    if (activeSlot.type === 'pick') {
+      if (activeSlot.team === 'blue') {
+        const newTeam = [...blueTeam];
+        newTeam[activeSlot.index].champion = champ;
+        setBlueTeam(newTeam);
+      } else {
+        const newTeam = [...redTeam];
+        newTeam[activeSlot.index].champion = champ;
+        setRedTeam(newTeam);
+      }
     } else {
-      const newTeam = [...redTeam];
-      newTeam[activeSlot.index].champion = champ;
-      setRedTeam(newTeam);
+      if (activeSlot.team === 'blue') {
+        const newBans = [...blueBans];
+        newBans[activeSlot.index] = champ;
+        setBlueBans(newBans);
+      } else {
+        const newBans = [...redBans];
+        newBans[activeSlot.index] = champ;
+        setRedBans(newBans);
+      }
     }
+    
+    let turnLabel = '';
+    let actionStr = '';
+    
+    if (draftMode === 'simulation') {
+      const isPick = activeSlot.type === 'pick';
+      turnLabel = `${activeSlot.team.charAt(0).toUpperCase()}${isPick ? 'P' : 'B'}`;
+      actionStr = isPick ? 'PICK' : 'BAN';
+    } else {
+      turnLabel = currentTurn ? currentTurn.label : '??';
+      actionStr = currentTurn ? currentTurn.action.toUpperCase() : 'ACTION';
+    }
+
+    setDraftLog(prev => [
+      ...prev,
+      {
+        round: prev.length + 1,
+        label: turnLabel,
+        team: activeSlot.team,
+        action: actionStr,
+        champion: champ.name,
+        role: activeSlot.type === 'pick' ? activeSlot.role : null
+      }
+    ]);
+
     setActiveSlot(null);
+    setCurrentTurnIndex(prev => prev + 1);
   };
 
   const getChampImageByName = (name) => {
@@ -73,6 +242,22 @@ export default function DraftSimulator() {
     if (champ) {
       handleChampionSelect(champ);
     }
+  };
+
+  const resetDraft = () => {
+    setBlueTeam(blueTeam.map(s => ({ ...s, champion: null })));
+    setRedTeam(redTeam.map(s => ({ ...s, champion: null })));
+    setBlueBans([null, null, null, null, null]);
+    setRedBans([null, null, null, null, null]);
+    setCurrentTurnIndex(0);
+    setActiveSlot(null);
+    setIsAITurnProcessing(false);
+    setDraftLog([]);
+  };
+
+  const handleModeChange = (e) => {
+    setDraftMode(e.target.value);
+    resetDraft();
   };
 
   const strengthsList = [];
@@ -123,10 +308,27 @@ export default function DraftSimulator() {
     <>
       <SideNavBar />
 
-      <header className="fixed top-0 right-0 left-0 h-16 bg-black/60 backdrop-blur-md flex justify-between items-center px-gutter z-50 ml-64 border-b border-white/10">
+      <header className={`fixed top-0 right-0 left-0 h-16 bg-black/60 backdrop-blur-md flex justify-between items-center px-gutter z-50 ml-64 border-b border-white/10 ${activeSlot ? 'hidden' : ''}`}>
         <div className="flex items-center gap-4">
           <span className="font-headline-md text-headline-md font-black text-pure-white tracking-tight">Aegis Intelligence</span>
         </div>
+        
+        <div className="flex items-center gap-4 ml-8">
+          <label className="text-on-surface-variant font-label-caps text-xs">DRAFT MODE:</label>
+          <select 
+            value={draftMode} 
+            onChange={handleModeChange}
+            className="bg-surface-container-high border border-white/20 text-pure-white text-sm rounded px-3 py-1 focus:outline-none focus:border-electric-green"
+          >
+            <option value="simulation">Simulation Mode</option>
+            <option value="blue">Start with Blue Team</option>
+            <option value="red">Start with Red Team</option>
+          </select>
+          <button onClick={resetDraft} className="text-xs text-on-surface hover:text-white border border-white/10 px-3 py-1 rounded bg-white/5 hover:bg-white/10 transition">
+            RESET
+          </button>
+        </div>
+
         <div className="flex items-center gap-6 justify-end flex-grow">
           <div className="flex items-center gap-4 text-electric-green">
             <span className="material-symbols-outlined cursor-pointer hover:text-pure-white transition-all duration-200">notifications</span>
@@ -138,8 +340,48 @@ export default function DraftSimulator() {
         </div>
       </header>
 
-      <main className="ml-64 pt-16 min-h-screen relative overflow-x-hidden scanline">
+      <main className={`ml-64 pt-16 min-h-screen relative overflow-x-hidden scanline ${activeSlot ? 'invisible pointer-events-none' : ''}`}>
         <div className="relative z-10 p-8 flex flex-col gap-8">
+
+          <div className="flex justify-between items-center bg-black/40 p-4 rounded-xl border border-white/5">
+             <div className="flex gap-2">
+                {blueBans.map((ban, i) => (
+                  <div key={`bban-${i}`} 
+                       onClick={() => handleSlotClick('blue', i, 'ban')}
+                       className={`w-12 h-12 rounded overflow-hidden flex items-center justify-center transition border-2 
+                         ${ban ? 'border-team-blue bg-team-blue/20' : 'border-white/10 bg-surface-container'}
+                         ${(!ban && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'blue' && currentTurn.action === 'ban'))) ? 'hover:border-team-blue/50 cursor-pointer shadow-[0_0_15px_rgba(59,130,246,0.5)]' : ''}
+                         ${(activeSlot?.team === 'blue' && activeSlot?.index === i && activeSlot?.type === 'ban') || (!activeSlot && currentTurn?.team === 'blue' && currentTurn?.action === 'ban' && i === nextBlueBanIdx) ? 'border-team-blue animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.8)]' : ''}
+                       `}>
+                    {ban ? <img src={ban.image} alt={ban.name} className="w-full h-full object-cover grayscale opacity-70" /> : <span className="text-[10px] text-on-surface-variant/50">BAN</span>}
+                  </div>
+                ))}
+             </div>
+             <div className="text-center font-headline-md font-bold tracking-widest text-pure-white">
+                {isAITurnProcessing ? (
+                  <span className="animate-pulse text-electric-green">AI IS THINKING...</span>
+                ) : currentTurn ? (
+                  <span className={currentTurn.team === 'blue' ? 'text-team-blue' : 'text-team-red'}>
+                    {currentTurn.team.toUpperCase()} {currentTurn.action.toUpperCase()}
+                  </span>
+                ) : (
+                  <span className="text-electric-green">DRAFT COMPLETE</span>
+                )}
+             </div>
+             <div className="flex gap-2">
+                {redBans.map((ban, i) => (
+                  <div key={`rban-${i}`} 
+                       onClick={() => handleSlotClick('red', i, 'ban')}
+                       className={`w-12 h-12 rounded overflow-hidden flex items-center justify-center transition border-2 
+                         ${ban ? 'border-team-red bg-team-red/20' : 'border-white/10 bg-surface-container'}
+                         ${(!ban && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'red' && currentTurn.action === 'ban'))) ? 'hover:border-team-red/50 cursor-pointer shadow-[0_0_15px_rgba(239,68,68,0.5)]' : ''}
+                         ${(activeSlot?.team === 'red' && activeSlot?.index === i && activeSlot?.type === 'ban') || (!activeSlot && currentTurn?.team === 'red' && currentTurn?.action === 'ban' && i === nextRedBanIdx) ? 'border-team-red animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.8)]' : ''}
+                       `}>
+                    {ban ? <img src={ban.image} alt={ban.name} className="w-full h-full object-cover grayscale opacity-70" /> : <span className="text-[10px] text-on-surface-variant/50">BAN</span>}
+                  </div>
+                ))}
+             </div>
+          </div>
 
           <div className="grid grid-cols-12 gap-6 items-stretch">
             {/* Blue Team Column */}
@@ -148,12 +390,19 @@ export default function DraftSimulator() {
                 <span className="font-label-caps text-label-caps text-team-blue font-bold">TEAM BLUE</span>
               </div>
               <div className="space-y-3">
-                {blueTeam.map((slot, idx) => (
+                {blueTeam.map((slot, idx) => {
+                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'blue' && currentTurn.action === 'pick'));
+                  const isActive = (activeSlot?.team === 'blue' && activeSlot?.index === idx && activeSlot?.type === 'pick') || (!activeSlot && currentTurn?.team === 'blue' && currentTurn?.action === 'pick' && idx === nextBluePickIdx);
+                  
+                  return (
                   <div
                     key={idx}
-                    onClick={() => handleSlotClick('blue', idx, slot.role)}
-                    className={`glass-panel p-3 flex items-center gap-4 group cursor-pointer transition-colors border-l-2 
-                      ${slot.champion ? 'bg-team-blue/5 border-team-blue glow-team-blue' : 'opacity-40 hover:opacity-100 border-transparent hover:border-team-blue/50'}`}
+                    onClick={() => handleSlotClick('blue', idx, 'pick', slot.role)}
+                    className={`glass-panel p-3 flex items-center gap-4 group transition-colors border-l-2 
+                      ${slot.champion ? 'bg-team-blue/5 border-team-blue glow-team-blue' : 
+                        isSelectable ? 'cursor-pointer border-team-blue/50 shadow-[0_0_15px_rgba(59,130,246,0.3)] bg-team-blue/10 hover:bg-team-blue/20' : 
+                        'opacity-40 border-transparent'}
+                      ${isActive ? 'border-team-blue bg-team-blue/30 animate-pulse shadow-[0_0_20px_rgba(59,130,246,0.8)]' : ''}`}
                   >
                     <div className={`w-14 h-14 rounded overflow-hidden flex items-center justify-center
                       ${slot.champion ? 'bg-team-blue/20 border border-team-blue' : 'bg-surface-container-high border border-white/10'}`}>
@@ -167,9 +416,9 @@ export default function DraftSimulator() {
                       <p className={`font-label-caps text-[10px] ${slot.champion ? 'text-team-blue' : 'text-on-surface-variant'}`}>{slot.role}</p>
                       <p className="font-body-md text-on-surface font-bold">{slot.champion ? slot.champion.name : 'EMPTY_SLOT'}</p>
                     </div>
-                    {slot.champion && <span className="material-symbols-outlined text-team-blue/50 group-hover:text-team-blue drop-glow-team-blue">check_circle</span>}
+                    {slot.champion && <span className="material-symbols-outlined text-team-blue/50 drop-glow-team-blue">check_circle</span>}
                   </div>
-                ))}
+                )})}
               </div>
             </div>
 
@@ -209,49 +458,6 @@ export default function DraftSimulator() {
                 );
               })()}
 
-              {/* Champion Selection Card Overlay */}
-              {activeSlot && (() => {
-                const roleFilter = activeSlot.role;
-                const filteredChampions = champions.filter(champ =>
-                  roleFilter ? champ.roles.includes(roleFilter.toUpperCase()) : true
-                );
-
-                return (
-                  <div className="fixed top-16 left-64 right-0 z-[100] flex items-start justify-center p-6 bg-black/80 backdrop-blur-xl border-b border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.7)]">
-                    <div className="relative w-full max-w-6xl bg-transparent flex flex-col">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="font-label-caps text-xs text-pure-white font-bold tracking-widest uppercase">
-                          SELECTING {activeSlot.team} {activeSlot.role}
-                        </span>
-                        <button onClick={() => setActiveSlot(null)} className="text-on-surface-variant hover:text-white transition-colors">
-                          <span className="material-symbols-outlined text-lg">close</span>
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-[6px] justify-center items-start content-start mt-2">
-                        {filteredChampions.map(champ => {
-                          return (
-                            <div
-                              key={champ.id}
-                              onClick={() => handleChampionSelect(champ)}
-                              className="group relative w-12 h-16 sm:w-14 sm:h-[72px] lg:w-[60px] lg:h-[84px] cursor-pointer overflow-hidden border-2 border-transparent hover:border-electric-green transition-all shadow-md hover:shadow-electric-green/40 hover:-translate-y-1 z-10 hover:z-20"
-                            >
-                              <img
-                                src={champ.image}
-                                alt={champ.name}
-                                className="w-full h-full object-cover grayscale-[30%] group-hover:grayscale-0 transition-all duration-300"
-                              />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            </div>
-                          );
-                        })}
-                        <div className="w-12 h-16 sm:w-14 sm:h-[72px] lg:w-[60px] lg:h-[84px] border-2 border-dashed border-white/20 flex items-center justify-center cursor-pointer hover:border-white/50 hover:bg-white/5 transition-all text-white/30 hover:text-white">
-                          <span className="material-symbols-outlined text-2xl">add</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
 
             {/* Red Team Column */}
@@ -260,12 +466,19 @@ export default function DraftSimulator() {
                 <span className="font-label-caps text-label-caps text-team-red font-bold">TEAM RED</span>
               </div>
               <div className="space-y-3">
-                {redTeam.map((slot, idx) => (
+                {redTeam.map((slot, idx) => {
+                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'red' && currentTurn.action === 'pick'));
+                  const isActive = (activeSlot?.team === 'red' && activeSlot?.index === idx && activeSlot?.type === 'pick') || (!activeSlot && currentTurn?.team === 'red' && currentTurn?.action === 'pick' && idx === nextRedPickIdx);
+
+                  return (
                   <div
                     key={idx}
-                    onClick={() => handleSlotClick('red', idx, slot.role)}
-                    className={`glass-panel p-3 flex flex-row-reverse items-center gap-4 group cursor-pointer transition-colors border-r-2 
-                      ${slot.champion ? 'bg-team-red/5 border-team-red glow-team-red' : 'opacity-40 hover:opacity-100 border-transparent hover:border-team-red/50'}`}
+                    onClick={() => handleSlotClick('red', idx, 'pick', slot.role)}
+                    className={`glass-panel p-3 flex flex-row-reverse items-center gap-4 group transition-colors border-r-2 
+                      ${slot.champion ? 'bg-team-red/5 border-team-red glow-team-red' : 
+                        isSelectable ? 'cursor-pointer border-team-red/50 shadow-[0_0_15px_rgba(239,68,68,0.3)] bg-team-red/10 hover:bg-team-red/20' : 
+                        'opacity-40 border-transparent'}
+                      ${isActive ? 'border-team-red bg-team-red/30 animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.8)]' : ''}`}
                   >
                     <div className={`w-14 h-14 rounded overflow-hidden flex items-center justify-center
                       ${slot.champion ? 'bg-team-red/20 border border-team-red' : 'bg-surface-container-high border border-white/10'}`}>
@@ -279,98 +492,126 @@ export default function DraftSimulator() {
                       <p className={`font-label-caps text-[10px] ${slot.champion ? 'text-team-red' : 'text-on-surface-variant'}`}>{slot.role}</p>
                       <p className="font-body-md text-on-surface font-bold">{slot.champion ? slot.champion.name : 'EMPTY_SLOT'}</p>
                     </div>
-                    {slot.champion && <span className="material-symbols-outlined text-team-red/50 group-hover:text-team-red drop-glow-team-red">check_circle</span>}
+                    {slot.champion && <span className="material-symbols-outlined text-team-red/50 drop-glow-team-red">check_circle</span>}
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           </div>
 
-          <div className="glass-panel p-card-padding rounded-xl relative overflow-hidden">
+          <div className="glass-panel p-card-padding rounded-xl relative overflow-hidden mt-12">
             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-team-blue via-electric-green to-team-red opacity-50"></div>
             <div className="flex items-center gap-2 mb-6">
               <span className="material-symbols-outlined text-electric-green" style={{ fontVariationSettings: "'FILL' 1" }}>analytics</span>
               <h3 className="font-label-caps text-label-caps text-on-surface font-bold">AI DRAFT INTELLIGENCE REPORT</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-              <div>
-                <p className="font-label-caps text-[10px] text-team-blue mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-team-blue glow-team-blue"></span> TEAM STRENGTHS
-                </p>
-                <ul className="space-y-2">
-                  {strengthsList.map(item => (
-                    <li key={item.id} className="font-body-sm text-on-surface-variant flex items-start gap-2">
-                      <span className="material-symbols-outlined text-[14px] mt-1 text-team-blue">check</span>
-                      {item.text}
-                    </li>
-                  ))}
-                </ul>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Draft Sequence Log */}
+              <div className="lg:col-span-5 bg-black/40 rounded-lg border border-white/5 p-5 h-[480px] overflow-y-auto font-label-mono text-sm space-y-3">
+                <h4 className="text-electric-green mb-4 border-b border-white/10 pb-2 flex justify-between items-center">
+                  <span>DRAFT SEQUENCE LOG</span>
+                  <span className="text-[10px] text-on-surface-variant">ROUND-BY-ROUND</span>
+                </h4>
+                {draftLog.map(log => (
+                  <div key={log.round} className={`border-l-2 pl-3 py-1 ${log.team === 'blue' ? 'border-team-blue' : 'border-team-red'}`}>
+                    <div className="text-on-surface-variant text-[10px] mb-1">STEP {log.round} - {log.label}</div>
+                    <div>
+                      <span className={log.team === 'blue' ? 'text-team-blue font-bold' : 'text-team-red font-bold'}>
+                        {log.team.toUpperCase()} {log.action}
+                      </span>
+                      <span className="text-pure-white ml-2">{log.champion}</span>
+                      {log.role && <span className="text-on-surface-variant ml-2">({log.role})</span>}
+                    </div>
+                  </div>
+                ))}
+                {draftLog.length === 0 && <span className="text-on-surface-variant/50">Awaiting initial selections...</span>}
               </div>
-              <div>
-                <p className="font-label-caps text-[10px] text-team-red mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-team-red glow-team-red"></span> TEAM WEAKNESSES
-                </p>
-                <ul className="space-y-2">
-                  {weaknessesList.map(item => (
-                    <li key={item.id} className="font-body-sm text-on-surface-variant flex items-start gap-2">
-                      <span className="material-symbols-outlined text-[14px] mt-1 text-team-red">warning</span>
-                      {item.text}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <p className="font-label-caps text-[10px] text-electric-green mb-3">RECOMMENDED PICKS</p>
-                <div className="flex gap-3">
-                  {predictionReport.recommendedPicks && predictionReport.recommendedPicks.length > 0 ? (
-                    predictionReport.recommendedPicks.map((champName, idx) => {
-                      const champImg = getChampImageByName(champName);
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => handleRecommendationClick(champName)}
-                          className={`w-12 h-12 bg-surface-container rounded border border-electric-green/40 flex items-center justify-center transition-all relative
-                            ${activeSlot ? 'cursor-pointer hover:border-electric-green hover:glow-green' : 'cursor-default'}`}
-                          title={activeSlot ? `Select ${champName} for active slot` : champName}
-                        >
-                          {champImg ? (
-                            <img alt={champName} className="w-10 h-10 object-cover rounded-sm" src={champImg} />
-                          ) : (
-                            <span className="text-[10px] text-electric-green">{champName}</span>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <span className="text-body-sm text-on-surface-variant">No recommendations available</span>
-                  )}
+
+              {/* Overall Report Container */}
+              <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-6 content-start">
+                <div className="bg-surface-container/30 p-4 rounded border border-white/5">
+                  <p className="font-label-caps text-[10px] text-team-blue mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-team-blue glow-team-blue"></span> TEAM STRENGTHS
+                  </p>
+                  <ul className="space-y-2">
+                    {strengthsList.map(item => (
+                      <li key={item.id} className="font-body-sm text-on-surface-variant flex items-start gap-2">
+                        <span className="material-symbols-outlined text-[14px] mt-1 text-team-blue">check</span>
+                        {item.text}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
-              <div>
-                <p className="font-label-caps text-[10px] text-team-red mb-3">RECOMMENDED BANS</p>
-                <div className="flex gap-3">
-                  {predictionReport.recommendedBans && predictionReport.recommendedBans.length > 0 ? (
-                    predictionReport.recommendedBans.map((champName, idx) => {
-                      const champImg = getChampImageByName(champName);
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => handleRecommendationClick(champName)}
-                          className={`w-12 h-12 bg-surface-container rounded border border-team-red/40 flex items-center justify-center transition-all grayscale opacity-60 hover:grayscale-0 hover:opacity-100 relative
-                            ${activeSlot ? 'cursor-pointer hover:border-team-red' : 'cursor-default'}`}
-                          title={activeSlot ? `Select ${champName} for active slot` : champName}
-                        >
-                          {champImg ? (
-                            <img alt={champName} className="w-10 h-10 object-cover rounded-sm" src={champImg} />
-                          ) : (
-                            <span className="text-[10px] text-team-red">{champName}</span>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <span className="text-body-sm text-on-surface-variant">No recommendations available</span>
-                  )}
+                
+                <div className="bg-surface-container/30 p-4 rounded border border-white/5">
+                  <p className="font-label-caps text-[10px] text-team-red mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-team-red glow-team-red"></span> TEAM WEAKNESSES
+                  </p>
+                  <ul className="space-y-2">
+                    {weaknessesList.map(item => (
+                      <li key={item.id} className="font-body-sm text-on-surface-variant flex items-start gap-2">
+                        <span className="material-symbols-outlined text-[14px] mt-1 text-team-red">warning</span>
+                        {item.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                
+                <div className="bg-surface-container/30 p-4 rounded border border-white/5">
+                  <p className="font-label-caps text-[10px] text-electric-green mb-3">RECOMMENDED PICKS</p>
+                  <div className="flex gap-3">
+                    {predictionReport.recommendedPicks && predictionReport.recommendedPicks.length > 0 ? (
+                      predictionReport.recommendedPicks.map((champName, idx) => {
+                        const champImg = getChampImageByName(champName);
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleRecommendationClick(champName)}
+                            className={`w-12 h-12 bg-surface-container rounded border border-electric-green/40 flex items-center justify-center transition-all relative
+                              ${activeSlot && activeSlot.type === 'pick' ? 'cursor-pointer hover:border-electric-green hover:glow-green' : 'cursor-default opacity-50'}`}
+                            title={activeSlot ? `Select ${champName} for active slot` : champName}
+                          >
+                            {champImg ? (
+                              <img alt={champName} className="w-10 h-10 object-cover rounded-sm" src={champImg} />
+                            ) : (
+                              <span className="text-[10px] text-electric-green">{champName}</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <span className="text-body-sm text-on-surface-variant">No recommendations available</span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="bg-surface-container/30 p-4 rounded border border-white/5">
+                  <p className="font-label-caps text-[10px] text-team-red mb-3">RECOMMENDED BANS</p>
+                  <div className="flex gap-3">
+                    {predictionReport.recommendedBans && predictionReport.recommendedBans.length > 0 ? (
+                      predictionReport.recommendedBans.map((champName, idx) => {
+                        const champImg = getChampImageByName(champName);
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleRecommendationClick(champName)}
+                            className={`w-12 h-12 bg-surface-container rounded border border-team-red/40 flex items-center justify-center transition-all grayscale opacity-60 hover:grayscale-0 hover:opacity-100 relative
+                              ${activeSlot && activeSlot.type === 'ban' ? 'cursor-pointer hover:border-team-red' : 'cursor-default opacity-30'}`}
+                            title={activeSlot ? `Select ${champName} for active slot` : champName}
+                          >
+                            {champImg ? (
+                              <img alt={champName} className="w-10 h-10 object-cover rounded-sm" src={champImg} />
+                            ) : (
+                              <span className="text-[10px] text-team-red">{champName}</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <span className="text-body-sm text-on-surface-variant">No recommendations available</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -379,28 +620,34 @@ export default function DraftSimulator() {
           <div className="mt-auto pt-6">
             <div className="flex justify-between items-center mb-4">
               <h4 className="font-label-mono text-[10px] text-on-surface-variant uppercase">DRAFT SEQUENCE TIMELINE</h4>
-              <span className="font-label-mono text-[10px] text-electric-green uppercase">PHASE 2: MID-BANS</span>
             </div>
-            <div className="relative h-16 glass-panel rounded flex items-center px-4 gap-4 overflow-x-auto no-scrollbar">
-              <div className="flex gap-2 border-r border-white/10 pr-4">
-                <div className="w-10 h-10 bg-team-red/20 border border-team-red/40 rounded flex items-center justify-center text-[10px] font-label-caps text-team-red">BAN</div>
-                <div className="w-10 h-10 bg-team-red/20 border border-team-red/40 rounded flex items-center justify-center text-[10px] font-label-caps text-team-red">BAN</div>
-                <div className="w-10 h-10 bg-team-blue/10 border border-team-blue/40 rounded flex items-center justify-center text-[10px] font-label-caps text-team-blue">BAN</div>
-              </div>
-              <div className="flex gap-2 border-r border-white/10 pr-4">
-                <div className="w-10 h-10 bg-team-blue border border-team-blue rounded flex items-center justify-center text-[10px] font-label-caps text-on-primary shadow-[0_0_10px_rgba(59,130,246,0.5)]">PICK</div>
-                <div className="w-10 h-10 bg-team-red border border-team-red rounded flex items-center justify-center text-[10px] font-label-caps text-on-secondary">PICK</div>
-                <div className="w-10 h-10 bg-team-red border border-team-red rounded flex items-center justify-center text-[10px] font-label-caps text-on-secondary">PICK</div>
-              </div>
-              <div className="flex gap-2 relative">
-                <div className="w-12 h-12 bg-team-blue/10 border-2 border-team-blue rounded flex flex-col items-center justify-center glow-team-blue">
-                  <span className="text-[10px] font-bold text-team-blue">0:18</span>
-                  <div className="absolute -top-6 left-1/2 -translate-x-1/2">
-                    <span className="material-symbols-outlined text-team-blue text-[16px] drop-glow-team-blue">arrow_drop_down</span>
+            <div className="relative h-16 glass-panel rounded flex items-center px-4 gap-2 overflow-x-auto no-scrollbar">
+              {DRAFT_SEQUENCE.map((turn, idx) => {
+                const isPast = idx < currentTurnIndex;
+                const isCurrent = idx === currentTurnIndex;
+                const bgClass = turn.team === 'blue' ? 'bg-team-blue' : 'bg-team-red';
+                const borderClass = turn.team === 'blue' ? 'border-team-blue' : 'border-team-red';
+                const textColor = turn.team === 'blue' ? 'text-team-blue' : 'text-team-red';
+                
+                return (
+                  <div key={idx} className="flex gap-2 relative flex-shrink-0">
+                    <div className={`w-10 h-10 border rounded flex flex-col items-center justify-center transition-all
+                      ${isCurrent ? `${bgClass}/20 border-2 ${borderClass} glow-${turn.team} scale-110` : 
+                        isPast ? `${bgClass}/10 ${borderClass}/30 opacity-60` : 
+                        'bg-surface-container border-white/10 opacity-40'}`}>
+                      <span className={`text-[8px] font-bold ${isCurrent ? textColor : 'text-on-surface-variant'}`}>{turn.label}</span>
+                      <span className={`text-[10px] font-label-caps ${isCurrent ? textColor : 'text-on-surface-variant'}`}>
+                        {turn.action.substring(0,3).toUpperCase()}
+                      </span>
+                    </div>
+                    {isCurrent && (
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2">
+                        <span className={`material-symbols-outlined text-[16px] drop-glow-${turn.team} ${textColor}`}>arrow_drop_down</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="w-10 h-10 bg-surface-container-highest border border-white/10 rounded flex items-center justify-center text-[10px] font-label-caps text-on-surface-variant opacity-50">...</div>
-              </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -414,6 +661,78 @@ export default function DraftSimulator() {
           </div>
         </footer>
       </main>
+
+      {/* Champion Selection Card Overlay */}
+      {activeSlot && (() => {
+        const filteredChampions = champions.filter(champ =>
+          roleFilter !== 'ALL' ? champ.roles.includes(roleFilter) : true
+        );
+        
+        const pickedNames = new Set([
+          ...blueTeam.filter(t => t.champion).map(t => t.champion.name),
+          ...redTeam.filter(t => t.champion).map(t => t.champion.name),
+          ...blueBans.filter(b => b).map(b => b.name),
+          ...redBans.filter(b => b).map(b => b.name)
+        ]);
+
+        return (
+          <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-[#16171d] px-8 py-4">
+            <div className="glass-panel w-full max-w-container-max mx-auto rounded-xl flex flex-col overflow-hidden">
+              <div className="flex justify-between items-center p-4 border-b border-white/10 bg-black/30">
+                <div className="flex flex-col gap-2">
+                  <span className="font-label-caps text-xs text-pure-white font-bold tracking-widest uppercase">
+                    SELECTING {activeSlot.team} {activeSlot.type} {activeSlot.role ? `(${activeSlot.role})` : ''}
+                  </span>
+                  <div className="flex gap-2">
+                    {['ALL', 'TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'].map(role => (
+                      <button
+                        key={role}
+                        onClick={() => setRoleFilter(role)}
+                        className={`px-3 py-1 rounded text-[10px] font-label-caps transition-colors ${
+                          roleFilter === role ? 'bg-electric-green text-black font-bold' : 'bg-surface-container text-on-surface hover:bg-white/10'
+                        }`}
+                      >
+                        {role}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => setActiveSlot(null)} className="text-on-surface-variant hover:text-white transition-colors">
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+              <div className="p-4 pb-6">
+                <div className="flex flex-wrap gap-[6px] justify-center items-start content-start">
+                {filteredChampions.map(champ => {
+                  const isPicked = pickedNames.has(champ.name);
+                  return (
+                    <div
+                      key={champ.id}
+                      onClick={() => !isPicked && handleChampionSelect(champ)}
+                      className={`group relative w-12 h-16 sm:w-14 sm:h-[72px] lg:w-[60px] lg:h-[84px] overflow-hidden border-2 border-transparent transition-all z-10
+                        ${isPicked ? 'opacity-30 grayscale cursor-not-allowed' : 'cursor-pointer hover:border-electric-green shadow-md hover:shadow-electric-green/40 hover:-translate-y-1 hover:z-20'}
+                      `}
+                    >
+                      <img
+                        src={champ.image}
+                        alt={champ.name}
+                        className={`w-full h-full object-cover transition-all duration-300 ${!isPicked && 'grayscale-[30%] group-hover:grayscale-0'}`}
+                      />
+                      {isPicked && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <span className="material-symbols-outlined text-white text-2xl">block</span>
+                        </div>
+                      )}
+                      {!isPicked && <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>}
+                    </div>
+                  );
+                })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </>
   );

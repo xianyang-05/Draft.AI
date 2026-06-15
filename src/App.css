@@ -672,6 +672,14 @@ video {
   z-index: 70;
 }
 
+.z-\[100\] {
+  z-index: 100;
+}
+
+.invisible {
+  visibility: hidden;
+}
+
 .col-span-12 {
   grid-column: span 12 / span 12;
 }
