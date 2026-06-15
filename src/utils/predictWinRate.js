@@ -76,6 +76,22 @@ export async function predictWinRate(blueTeam, redTeam, blueBans, redBans, targe
 /**
  * Helper to compute champion draft contribution details.
  */
+function getSlotValue(champData, side, modelRole) {
+  const sideData = champData?.[side];
+  if (!sideData) return null;
+  if (sideData[modelRole]) return { value: sideData[modelRole].value, offRole: false };
+  // Off-role pick: champion has side data but not for this role
+  const knownVals = Object.values(sideData).map(r => r.value);
+  if (knownVals.length === 0) return null;
+  const avgKnown = knownVals.reduce((a, b) => a + b, 0) / knownVals.length;
+  // Blue off-role → hurts blue → negative impact on blue win rate
+  // Red off-role  → hurts red  → positive impact on blue win rate
+  const penalty = side === 'blue'
+    ? (-Math.abs(avgKnown) - 0.04)
+    : ( Math.abs(avgKnown) + 0.04);
+  return { value: penalty, offRole: true };
+}
+
 function getDraftDetails(blueTeam, redTeam) {
   const championValues = modelData.champion_values || {};
   const blueDetails = [];
@@ -85,10 +101,9 @@ function getDraftDetails(blueTeam, redTeam) {
     if (slot.champion) {
       const champName = slot.champion.name;
       const modelRole = ROLE_MAP[slot.role];
-      const champData = championValues[champName];
-      if (champData && champData.blue && champData.blue[modelRole]) {
-        const val = champData.blue[modelRole].value;
-        blueDetails.push({ name: champName, role: slot.role, value: val });
+      const result = getSlotValue(championValues[champName], 'blue', modelRole);
+      if (result !== null) {
+        blueDetails.push({ name: champName, role: slot.role, value: result.value, offRole: result.offRole });
       }
     }
   });
@@ -97,10 +112,9 @@ function getDraftDetails(blueTeam, redTeam) {
     if (slot.champion) {
       const champName = slot.champion.name;
       const modelRole = ROLE_MAP[slot.role];
-      const champData = championValues[champName];
-      if (champData && champData.red && champData.red[modelRole]) {
-        const val = champData.red[modelRole].value;
-        redDetails.push({ name: champName, role: slot.role, value: val });
+      const result = getSlotValue(championValues[champName], 'red', modelRole);
+      if (result !== null) {
+        redDetails.push({ name: champName, role: slot.role, value: result.value, offRole: result.offRole });
       }
     }
   });

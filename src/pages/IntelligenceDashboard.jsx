@@ -1,11 +1,46 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import SideNavBar from '../components/SideNavBar';
 import { Link } from 'react-router-dom';
+import modelData from '../data/draft_model.json';
+
+const BACKEND_URL = 'http://127.0.0.1:8000';
+const metadata = modelData.metadata || {};
+const championStats = modelData.champion_stats || {};
 
 export default function IntelligenceDashboard() {
+  const [backendOnline, setBackendOnline] = useState(null);
+
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setBackendOnline(data?.status === 'ok'))
+      .catch(() => setBackendOnline(false));
+  }, []);
+
+  const topChampsByPick = useMemo(() => {
+    const trainingGames = metadata.training_games || 1;
+    return Object.entries(championStats)
+      .map(([name, stats]) => ({
+        name,
+        total_picks: stats.total_picks,
+        pickRate: ((stats.total_picks / (trainingGames * 2)) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.total_picks - a.total_picks)
+      .slice(0, 4);
+  }, []);
+
+  const maxPicks = topChampsByPick[0]?.total_picks || 1;
+
+  const brierScore = metadata.test_brier_score?.toFixed(4) ?? '—';
+  const logLoss = metadata.test_log_loss?.toFixed(4) ?? '—';
+  const accuracy = metadata.test_accuracy != null
+    ? `${(metadata.test_accuracy * 100).toFixed(1)}%`
+    : '—';
+  const trainingGames = metadata.training_games?.toLocaleString() ?? '—';
+  const championCount = metadata.champion_count ?? '—';
+
   return (
 <>
-
 
 <header className="fixed top-0 right-0 left-64 z-50 flex justify-between items-center px-gutter h-16 bg-black/60 backdrop-blur-md">
 <div className="flex items-center gap-4">
@@ -16,7 +51,14 @@ export default function IntelligenceDashboard() {
 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-label-mono">search</span>
 <input className="bg-surface-container-low border border-white/5 rounded-lg pl-10 pr-4 py-2 focus:outline-none w-64 transition-all text-pure-white" placeholder="QUERY DATABASE..." type="text" />
 </div>
-<div className="flex items-center gap-4 text-on-surface-variant hover:text-electric-green transition-all">
+<div className="flex items-center gap-4 text-on-surface-variant">
+  {/* Backend status indicator */}
+  <div className="flex items-center gap-2" title={backendOnline ? 'ML backend online' : backendOnline === false ? 'ML backend offline — using local fallback' : 'Checking backend...'}>
+    <span className={`w-2 h-2 rounded-full ${backendOnline === true ? 'bg-electric-green animate-pulse' : backendOnline === false ? 'bg-error' : 'bg-on-surface-variant'}`}></span>
+    <span className={`font-label-caps text-[9px] tracking-widest ${backendOnline === true ? 'text-electric-green' : backendOnline === false ? 'text-error' : 'text-on-surface-variant'}`}>
+      {backendOnline === true ? 'ML LIVE' : backendOnline === false ? 'ML OFFLINE' : 'CHECKING...'}
+    </span>
+  </div>
 <button className="relative hover:text-electric-green transition-colors duration-200 cursor-pointer active:scale-95">
 <span className="material-symbols-outlined">notifications</span>
 <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full"></span>
@@ -43,26 +85,26 @@ export default function IntelligenceDashboard() {
 <div>
 <h1 className="font-headline-lg text-headline-lg text-pure-white mb-2">AI E-Sports Predictor</h1>
 <div className="flex flex-wrap gap-4 mt-4">
-<span className="px-3 py-1 bg-electric-green/10 text-electric-green border border-electric-green/20 rounded font-label-caps text-[10px]">PATCH 14.10</span>
-<span className="px-3 py-1 bg-surface-container-high text-on-surface-variant border border-white/10 rounded font-label-caps text-[10px]">NEURAL ENGINE ACTIVE</span>
+<span className="px-3 py-1 bg-electric-green/10 text-electric-green border border-electric-green/20 rounded font-label-caps text-[10px]">{metadata.model_type || 'LightGBM + CatBoost Ensemble'}</span>
+<span className="px-3 py-1 bg-surface-container-high text-on-surface-variant border border-white/10 rounded font-label-caps text-[10px]">TRAINED {metadata.training_years || '2023–2025'}</span>
 </div>
 </div>
 <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 w-full md:w-auto">
 <div className="flex flex-col">
-<span className="text-on-surface-variant font-label-caps text-[10px]">TOTAL MATCHES</span>
-<span className="text-pure-white font-headline-md text-headline-md">1.2M</span>
+<span className="text-on-surface-variant font-label-caps text-[10px]">TRAINING GAMES</span>
+<span className="text-pure-white font-headline-md text-headline-md">{trainingGames}</span>
 </div>
 <div className="flex flex-col">
 <span className="text-on-surface-variant font-label-caps text-[10px]">ACCURACY</span>
-<span className="text-electric-green font-headline-md text-headline-md">84.2%</span>
+<span className="text-electric-green font-headline-md text-headline-md">{accuracy}</span>
 </div>
 <div className="flex flex-col">
 <span className="text-on-surface-variant font-label-caps text-[10px]">BRIER SCORE</span>
-<span className="text-pure-white font-headline-md text-headline-md">0.18</span>
+<span className="text-pure-white font-headline-md text-headline-md">{brierScore}</span>
 </div>
 <div className="flex flex-col">
 <span className="text-on-surface-variant font-label-caps text-[10px]">LOG LOSS</span>
-<span className="text-pure-white font-headline-md text-headline-md">0.42</span>
+<span className="text-pure-white font-headline-md text-headline-md">{logLoss}</span>
 </div>
 </div>
 </div>
@@ -72,12 +114,11 @@ export default function IntelligenceDashboard() {
 <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter mb-gutter">
 <div className="glass-panel rounded-xl p-6 flex flex-col gap-2">
 <div className="flex justify-between items-center">
-<span className="text-on-surface-variant font-label-caps text-[10px]">PREDICTION ACCURACY</span>
-<span className="material-symbols-outlined text-electric-green text-sm">trending_up</span>
+<span className="text-on-surface-variant font-label-caps text-[10px]">DRAFT PREDICTION ACCURACY</span>
+<span className="material-symbols-outlined text-electric-green text-sm">analytics</span>
 </div>
 <div className="flex items-baseline gap-2">
-<span className="text-pure-white font-headline-md text-headline-md">84.2%</span>
-<span className="text-electric-green text-[10px] font-label-caps">+1.4%</span>
+<span className="text-pure-white font-headline-md text-headline-md">{accuracy}</span>
 </div>
 <div className="h-10 w-full mt-2">
 <svg className="w-full h-full stroke-electric-green fill-none stroke-2" viewBox="0 0 100 40">
@@ -86,38 +127,38 @@ export default function IntelligenceDashboard() {
 </div>
 </div>
 <div className="glass-panel rounded-xl p-6 flex flex-col gap-2">
-<span className="text-on-surface-variant font-label-caps text-[10px]">TOTAL MATCHES</span>
+<span className="text-on-surface-variant font-label-caps text-[10px]">TRAINING MATCHES</span>
 <div className="flex items-baseline gap-2">
-<span className="text-pure-white font-headline-md text-headline-md">1,248,012</span>
+<span className="text-pure-white font-headline-md text-headline-md">{trainingGames}</span>
 </div>
 <div className="w-full bg-surface-variant h-1 rounded-full mt-auto">
 <div className="bg-electric-green h-full rounded-full w-3/4"></div>
 </div>
-<span className="text-on-surface-variant text-[10px] font-label-caps mt-1">PROCESSED TODAY: 12,402</span>
+<span className="text-on-surface-variant text-[10px] font-label-caps mt-1">TEST SET: {metadata.test_games?.toLocaleString() ?? '—'} GAMES</span>
 </div>
 <div className="glass-panel rounded-xl p-6 flex flex-col gap-2">
 <span className="text-on-surface-variant font-label-caps text-[10px]">ACTIVE CHAMPIONS</span>
 <div className="flex items-baseline gap-2">
-<span className="text-pure-white font-headline-md text-headline-md">168 / 168</span>
+<span className="text-pure-white font-headline-md text-headline-md">{championCount} / {championCount}</span>
 </div>
 <div className="flex -space-x-2 mt-auto">
 <div className="w-6 h-6 rounded-full border border-surface bg-surface-variant"></div>
 <div className="w-6 h-6 rounded-full border border-surface bg-surface-variant"></div>
 <div className="w-6 h-6 rounded-full border border-surface bg-surface-variant"></div>
-<div className="w-6 h-6 rounded-full border border-surface bg-electric-green/20 flex items-center justify-center text-[8px] font-bold text-electric-green">+165</div>
+<div className="w-6 h-6 rounded-full border border-surface bg-electric-green/20 flex items-center justify-center text-[8px] font-bold text-electric-green">+{championCount - 3}</div>
 </div>
 </div>
 <div className="glass-panel rounded-xl p-6 flex flex-col gap-2">
-<span className="text-on-surface-variant font-label-caps text-[10px]">CURRENT META SCORE</span>
+<span className="text-on-surface-variant font-label-caps text-[10px]">BLUE SIDE BASE WIN RATE</span>
 <div className="flex items-baseline gap-2">
-<span className="text-electric-green font-headline-md text-headline-md">94.8</span>
+<span className="text-electric-green font-headline-md text-headline-md">{metadata.base_blue_win_rate != null ? `${(metadata.base_blue_win_rate * 100).toFixed(1)}%` : '—'}</span>
 </div>
 <div className="flex items-center gap-2 mt-auto">
 <div className="h-2 flex-1 bg-surface-variant rounded-full overflow-hidden">
-<div className="h-full bg-electric-green w-[94.8%]"></div>
+<div className="h-full bg-electric-green" style={{ width: `${((metadata.base_blue_win_rate ?? 0.5) * 100).toFixed(1)}%` }}></div>
 </div>
 </div>
-<span className="text-on-surface-variant text-[10px] font-label-caps mt-1">VOLATILITY: LOW</span>
+<span className="text-on-surface-variant text-[10px] font-label-caps mt-1">STRUCTURAL BLUE ADVANTAGE</span>
 </div>
 </section>
 
@@ -126,19 +167,18 @@ export default function IntelligenceDashboard() {
 <div className="flex justify-between items-center mb-6">
 <h3 className="font-label-caps text-label-caps text-pure-white">WIN RATE TREND</h3>
 <div className="flex gap-2">
-<button className="px-2 py-1 bg-electric-green/10 text-electric-green text-[10px] rounded border border-electric-green/20">24H</button>
-<button className="px-2 py-1 text-on-surface-variant text-[10px] rounded hover:bg-white/5 border border-transparent">7D</button>
+<button className="px-2 py-1 bg-electric-green/10 text-electric-green text-[10px] rounded border border-electric-green/20">ALL TIME</button>
 </div>
 </div>
 <div className="flex-1 relative">
 <div className="absolute bottom-4 left-4 flex gap-4">
 <div className="flex items-center gap-2">
 <span className="w-3 h-1 bg-electric-green rounded"></span>
-<span className="text-[10px] font-label-caps text-on-surface-variant">BLUE SIDE</span>
+<span className="text-[10px] font-label-caps text-on-surface-variant">BLUE SIDE ({metadata.base_blue_win_rate != null ? `${(metadata.base_blue_win_rate * 100).toFixed(1)}%` : '—'})</span>
 </div>
 <div className="flex items-center gap-2">
 <span className="w-3 h-1 bg-pure-white rounded"></span>
-<span className="text-[10px] font-label-caps text-on-surface-variant">RED SIDE</span>
+<span className="text-[10px] font-label-caps text-on-surface-variant">RED SIDE ({metadata.base_blue_win_rate != null ? `${((1 - metadata.base_blue_win_rate) * 100).toFixed(1)}%` : '—'})</span>
 </div>
 </div>
 </div>
@@ -147,68 +187,42 @@ export default function IntelligenceDashboard() {
 <div className="glass-panel rounded-xl p-6 flex flex-col">
 <h3 className="font-label-caps text-label-caps text-pure-white mb-6">CHAMPION PICK RATE</h3>
 <div className="space-y-4 flex-1">
-<div className="space-y-1">
-<div className="flex justify-between text-[10px] font-label-caps">
-<span className="text-on-surface-variant">LEE SIN</span>
-<span className="text-pure-white">42.4%</span>
-</div>
-<div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
-<div className="h-full bg-electric-green w-[42.4%]"></div>
-</div>
-</div>
-<div className="space-y-1">
-<div className="flex justify-between text-[10px] font-label-caps">
-<span className="text-on-surface-variant">EZREAL</span>
-<span className="text-pure-white">38.1%</span>
-</div>
-<div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
-<div className="h-full bg-electric-green w-[38.1%]"></div>
-</div>
-</div>
-<div className="space-y-1">
-<div className="flex justify-between text-[10px] font-label-caps">
-<span className="text-on-surface-variant">THRESH</span>
-<span className="text-pure-white">29.8%</span>
-</div>
-<div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
-<div className="h-full bg-electric-green w-[29.8%]"></div>
-</div>
-</div>
-<div className="space-y-1">
-<div className="flex justify-between text-[10px] font-label-caps">
-<span className="text-on-surface-variant">LEONA</span>
-<span className="text-pure-white">22.1%</span>
-</div>
-<div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
-<div className="h-full bg-electric-green w-[22.1%]"></div>
-</div>
-</div>
+{topChampsByPick.map(champ => (
+  <div key={champ.name} className="space-y-1">
+    <div className="flex justify-between text-[10px] font-label-caps">
+      <span className="text-on-surface-variant">{champ.name.toUpperCase()}</span>
+      <span className="text-pure-white">{champ.pickRate}%</span>
+    </div>
+    <div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
+      <div className="h-full bg-electric-green rounded-full" style={{ width: `${(champ.total_picks / maxPicks * 100).toFixed(0)}%` }}></div>
+    </div>
+  </div>
+))}
 </div>
 </div>
 <div className="glass-panel rounded-xl p-6 flex flex-col">
-<h3 className="font-label-caps text-label-caps text-pure-white mb-6">MATCH OUTCOME</h3>
+<h3 className="font-label-caps text-label-caps text-pure-white mb-6">MODEL CALIBRATION</h3>
 <div className="flex-1 flex flex-col items-center justify-center relative">
 <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 36 36">
-<circle cx="18" cy="18" fill="transparent" r="15.9" stroke="rgba(255,255,255,0.05)" stroke-width="3"></circle>
-<circle cx="18" cy="18" fill="transparent" r="15.9" stroke="#D2FF64" stroke-dasharray="65 100" stroke-width="3"></circle>
-<circle cx="18" cy="18" fill="transparent" r="15.9" stroke="#FFFFFF" stroke-dasharray="25 100" stroke-dashoffset="-65" stroke-width="3"></circle>
+<circle cx="18" cy="18" fill="transparent" r="15.9" stroke="rgba(255,255,255,0.05)" strokeWidth="3"></circle>
+<circle cx="18" cy="18" fill="transparent" r="15.9" stroke="#D2FF64" strokeDasharray={`${metadata.test_auc != null ? (metadata.test_auc * 100).toFixed(0) : 52} 100`} strokeWidth="3"></circle>
 </svg>
 <div className="absolute inset-0 flex flex-col items-center justify-center">
-<span className="text-pure-white font-headline-md text-headline-md">92%</span>
-<span className="text-[8px] font-label-caps text-on-surface-variant">CERTAINTY</span>
+<span className="text-pure-white font-headline-md text-headline-md">{metadata.test_auc != null ? (metadata.test_auc * 100).toFixed(1) : '—'}</span>
+<span className="text-[8px] font-label-caps text-on-surface-variant">AUC</span>
 </div>
 </div>
 <div className="mt-4 flex flex-col gap-2">
 <div className="flex items-center justify-between">
 <div className="flex items-center gap-2">
 <span className="w-2 h-2 bg-electric-green rounded-full"></span>
-<span className="text-[10px] font-label-caps text-on-surface-variant">STOMP (65%)</span>
+<span className="text-[10px] font-label-caps text-on-surface-variant">BRIER SCORE: {brierScore}</span>
 </div>
 </div>
 <div className="flex items-center justify-between">
 <div className="flex items-center gap-2">
 <span className="w-2 h-2 bg-pure-white rounded-full"></span>
-<span className="text-[10px] font-label-caps text-on-surface-variant">CLOSE (25%)</span>
+<span className="text-[10px] font-label-caps text-on-surface-variant">LOG LOSS: {logLoss}</span>
 </div>
 </div>
 </div>
