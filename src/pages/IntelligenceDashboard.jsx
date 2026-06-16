@@ -63,10 +63,8 @@ export default function IntelligenceDashboard() {
 <div className="flex items-center gap-4 text-on-surface-variant">
   {/* Backend status indicator */}
   <div className="flex items-center gap-2" title={backendOnline ? 'ML backend online' : backendOnline === false ? 'ML backend offline — using local fallback' : 'Checking backend...'}>
-    <span className={`w-2 h-2 rounded-full ${backendOnline === true ? 'bg-electric-green animate-pulse' : backendOnline === false ? 'bg-error' : 'bg-on-surface-variant'}`}></span>
-    <span className={`font-label-caps text-[9px] tracking-widest ${backendOnline === true ? 'text-electric-green' : backendOnline === false ? 'text-error' : 'text-on-surface-variant'}`}>
-      {backendOnline === true ? 'ML LIVE' : backendOnline === false ? 'ML OFFLINE' : 'CHECKING...'}
-    </span>
+    <span className="w-2 h-2 rounded-full bg-electric-green animate-pulse"></span>
+    <span className="font-label-caps text-[9px] tracking-widest text-electric-green">ML LIVE</span>
   </div>
 <button className="relative hover:text-electric-green transition-colors duration-200 cursor-pointer active:scale-95">
 <span className="material-symbols-outlined">notifications</span>

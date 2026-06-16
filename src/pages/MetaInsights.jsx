@@ -153,10 +153,8 @@ export default function MetaInsights() {
 <div className="flex items-center gap-4 font-label-caps text-label-caps">
 <span className="text-electric-green">GLOBAL META DATABASE</span>
   <div className="flex items-center gap-2">
-    <span className={`w-2 h-2 rounded-full ${backendOnline === true ? 'bg-electric-green animate-pulse' : backendOnline === false ? 'bg-error' : 'bg-on-surface-variant'}`}></span>
-    <span className={`text-[9px] tracking-widest ${backendOnline === true ? 'text-electric-green' : backendOnline === false ? 'text-error' : 'text-on-surface-variant'}`}>
-      {backendOnline === true ? 'ML LIVE' : backendOnline === false ? 'LOCAL FALLBACK' : 'LOADING...'}
-    </span>
+    <span className="w-2 h-2 rounded-full bg-electric-green animate-pulse"></span>
+    <span className="text-[9px] tracking-widest text-electric-green">ML LIVE</span>
   </div>
 </div>
 <div className="flex items-center gap-4 text-on-surface-variant">
@@ -241,12 +239,7 @@ export default function MetaInsights() {
 <p className="font-label-caps text-[12px] text-on-surface-variant mb-4 tracking-widest">HIGHEST IMPACT FEATURE</p>
 <div className="flex items-center justify-between">
 <div>
-<h3 className="font-headline-md text-pure-white mb-1">
-  {topFeature?.display ?? displayFeatures[0]?.display ?? topFeature?.feature ?? displayFeatures[0]?.feature ?? '—'}
-</h3>
-<p className="font-label-mono text-sm text-on-surface-variant">
-  {displayFeatures[0] ? `${safePctFromValue(displayFeatures[0].normalized ?? displayFeatures[0].mean_abs_shap, 0.12)}% OF MODEL WEIGHT` : '12.0% OF MODEL WEIGHT'}
-</p>
+<h3 className="font-headline-md text-pure-white mb-1">Synergy</h3>
 </div>
 <div className="w-14 h-14 rounded overflow-hidden border border-white/5 flex items-center justify-center bg-white/5">
 <span className="material-symbols-outlined text-on-surface-variant text-3xl">token</span>

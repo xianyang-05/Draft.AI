@@ -456,14 +456,33 @@ export function generateDraftOverview(blueTeam, redTeam, blueBans, redBans, draf
     };
   });
 
+  const pickNotes = [
+    (e, cv, isFavored) => isFavored
+      ? `Priority pick securing lane identity early — ${cv >= 0 ? '+' : ''}${(cv * 100).toFixed(1)}% blue-side value for ${e.role || 'this role'}.`
+      : `Reactive open to deny opponent synergy. Red-side flexibility preserved for later rounds.`,
+    (e, cv, isFavored) => isFavored
+      ? `High-value flex threat in ${e.role || 'lane'} — forces opponent into reactive ban or suboptimal answer.`
+      : `Contested pick with strong solo-queue presence. Model value: ${cv >= 0 ? '+' : ''}${(cv * 100).toFixed(1)}% on ${e.team} side.`,
+    (e, cv, isFavored) => isFavored
+      ? `Composition anchor — provides teamfight utility that scales with the existing picks (+${(cv * 100).toFixed(1)}% model contribution).`
+      : `Counter-pick window. Locks in a champion that directly addresses the favored side's early threat.`,
+    (e, cv, isFavored) => isFavored
+      ? `Late-round power spike pick — ${e.champion} finalises win condition. Model edge at ${isFavored ? blueWinChance : 100 - blueWinChance}%.`
+      : `Scaling selection. Underdog side banking on late-game reach to close the ${margin}% model gap.`,
+    (e, cv, isFavored) => isFavored
+      ? `Comfort/pocket pick solidifying draft identity. Highest collective value locked in, ${e.role || 'role'} now complete.`
+      : `Niche counter-tech — strong into specific matchup but narrower win condition than favored composition.`,
+  ];
+
   const pickTimeline = draftLog
     .filter(entry => entry.action === 'PICK')
-    .map(entry => ({
-      ...entry,
-      note: entry.team === favoredSide
-        ? `Favored-side selection reinforcing ${favoredSide === 'blue' ? blueWinChance : 100 - blueWinChance}% projection`
-        : `Counter-draft pick under ${favoredSide === 'blue' ? blueWinChance : 100 - blueWinChance}% ${favoredSide}-side model edge`
-    }));
+    .map((entry, idx) => {
+      const champDetail = [...details.blueDetails, ...details.redDetails].find(d => d.name === entry.champion);
+      const cv = champDetail?.value ?? 0;
+      const isFavored = entry.team === favoredSide;
+      const noteFn = pickNotes[idx % pickNotes.length];
+      return { ...entry, note: noteFn(entry, cv, isFavored) };
+    });
 
   const blueTotal = details.blueDetails.reduce((sum, d) => sum + d.value, 0);
   const redTotal = details.redDetails.reduce((sum, d) => sum + d.value, 0);
