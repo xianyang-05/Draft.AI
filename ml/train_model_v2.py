@@ -82,21 +82,86 @@ games_df = games_df.dropna(subset=ROLE_COLS)
 games_df['result'] = games_df['result'].astype(int)
 games_df['playoffs'] = pd.to_numeric(games_df['playoffs'], errors='coerce').fillna(0).astype(int)
 
+print(f'✅ OraclesElixir dataset: {len(games_df):,} games')
+print(f'   Blue side win rate: {games_df["result"].mean():.4f}')
+print(f'   Years: {sorted(games_df["year"].unique())}')
+
+# ============================================================
+# 2b. Load league_data.csv (solo queue ranked data)
+# ============================================================
+POS_MAP = {'TOP': 'top', 'JUNGLE': 'jng', 'MIDDLE': 'mid', 'BOTTOM': 'bot', 'UTILITY': 'sup'}
+league_csv = os.path.join(DATA_DIR, 'league_data.csv')
+
+if os.path.exists(league_csv):
+    print('\n📂 Loading league_data.csv...')
+    lol_raw = pd.read_csv(league_csv, low_memory=False, encoding='latin-1')
+
+    lol_raw['position'] = lol_raw['team_position'].map(POS_MAP)
+    lol_raw = lol_raw[lol_raw['position'].notna()]
+    lol_raw['side'] = lol_raw['team_id'].map({100: 'Blue', 200: 'Red'})
+    lol_raw['role_side'] = lol_raw['side'].str.lower() + '_' + lol_raw['position']
+    lol_raw['win_bool'] = lol_raw['win'].astype(str).str.upper() == 'TRUE'
+    lol_raw['patch'] = lol_raw['game_version'].apply(
+        lambda v: '.'.join(str(v).split('.')[:2]) if pd.notna(v) else '0.0'
+    )
+    lol_raw['year'] = pd.to_datetime(lol_raw['game_start_utc'], errors='coerce').dt.year
+
+    dupes_lol = lol_raw.groupby(['game_id', 'role_side']).size()
+    dupe_games_lol = dupes_lol[dupes_lol > 1].reset_index()['game_id'].unique()
+    lol_raw = lol_raw[~lol_raw['game_id'].isin(dupe_games_lol)]
+
+    lol_pivot = lol_raw.pivot_table(
+        index='game_id',
+        columns='role_side',
+        values='champion_name',
+        aggfunc='first'
+    ).reset_index().rename(columns={'game_id': 'gameid'})
+
+    blue_lol = lol_raw[lol_raw['side'] == 'Blue'].groupby('game_id').agg(
+        result=('win_bool', lambda x: int(x.iloc[0])),
+        patch=('patch', 'first'),
+        league=('queue_id', lambda x: 'SoloQ'),
+        playoffs=('queue_id', lambda x: 0),
+        year=('year', 'first')
+    ).reset_index().rename(columns={'game_id': 'gameid'})
+
+    games_lol = lol_pivot.merge(blue_lol, on='gameid', how='inner')
+    games_lol = games_lol.dropna(subset=ROLE_COLS)
+    games_lol['result'] = games_lol['result'].astype(int)
+    games_lol['playoffs'] = 0
+
+    print(f'   ✅ league_data.csv: {len(games_lol):,} games')
+    print(f'      Blue WR: {games_lol["result"].mean():.4f}')
+
+    games_df = pd.concat([games_df, games_lol], ignore_index=True)
+    print(f'\n📊 Combined dataset: {len(games_df):,} games total')
+else:
+    print('⚠  league_data.csv not found, skipping')
+
 print(f'✅ Final dataset: {len(games_df):,} games')
 print(f'   Blue side win rate: {games_df["result"].mean():.4f}')
 print(f'   Years: {sorted(games_df["year"].unique())}')
 
 # ============================================================
-# 3. Train / Test Split (temporal)
+# 3. Train / Test Split (80/20 stratified by year)
 # ============================================================
-train_mask = games_df['year'] < 2026
-test_mask  = games_df['year'] >= 2026
+train_df, test_df = train_test_split(
+    games_df,
+    test_size=0.20,
+    random_state=42,
+    stratify=games_df['year']
+)
 
-train_df = games_df[train_mask].copy()
-test_df  = games_df[test_mask].copy()
+train_mask = games_df.index.isin(train_df.index)
+test_mask  = games_df.index.isin(test_df.index)
+
+train_df = train_df.copy()
+test_df  = test_df.copy()
 
 base_rate = float(train_df['result'].mean())
 print(f'\n📊 Train: {len(train_df):,} | Test: {len(test_df):,}')
+print(f'   Train year distribution: {train_df["year"].value_counts().sort_index().to_dict()}')
+print(f'   Test year distribution:  {test_df["year"].value_counts().sort_index().to_dict()}')
 print(f'   Base rate (blue WR): {base_rate:.4f}')
 
 # ============================================================
@@ -193,19 +258,49 @@ print(f'   ✅ {len(le.classes_)} champions label-encoded')
 TIER1_LEAGUES = {'LCK', 'LPL', 'LEC', 'LCS', 'MSI', 'Worlds'}
 games_df['is_tier1'] = games_df['league'].isin(TIER1_LEAGUES).astype(int)
 
+# --- 4f. Role fit scores (computed on train only) ---
+print('🔧 Computing role fit scores...')
+role_fit_table = {}  # {champion: {role: fraction_of_games_in_this_role}}
+
+for role in ROLES:
+    blue_col = f'blue_{role}'
+    red_col  = f'red_{role}'
+    appearances = pd.concat([train_df[blue_col], train_df[red_col]]).dropna()
+    for champ in appearances:
+        role_fit_table.setdefault(champ, {})
+        role_fit_table[champ][role] = role_fit_table[champ].get(role, 0) + 1
+
+for champ in role_fit_table:
+    total = sum(role_fit_table[champ].values())
+    if total > 0:
+        for role in role_fit_table[champ]:
+            role_fit_table[champ][role] = round(role_fit_table[champ][role] / total, 4)
+
+for col in ROLE_COLS:
+    side, role = col.split('_', 1)
+    fit_col = f'{col}_role_fit'
+    games_df[fit_col] = [
+        role_fit_table.get(champ, {}).get(role, 0.2)
+        for champ in games_df[col]
+    ]
+
+ROLE_FIT_COLS = [f'{col}_role_fit' for col in ROLE_COLS]
+print(f'   ✅ {len(ROLE_FIT_COLS)} role fit features added')
+
 # --- Final feature set ---
-FEATURE_COLS = ENCODED_COLS + MATCHUP_COLS + SYNERGY_COLS + ['patch_numeric', 'playoffs', 'is_tier1']
+FEATURE_COLS = ENCODED_COLS + MATCHUP_COLS + SYNERGY_COLS + ROLE_FIT_COLS + ['patch_numeric', 'playoffs', 'is_tier1']
 print(f'\n📐 Total features: {len(FEATURE_COLS)}')
 print(f'   - Champion encodings: {len(ENCODED_COLS)}')
 print(f'   - Matchup win rates:  {len(MATCHUP_COLS)}')
 print(f'   - Synergy pairs:      {len(SYNERGY_COLS)}')
+print(f'   - Role fit scores:    {len(ROLE_FIT_COLS)}')
 print(f'   - Context:            patch, playoffs, tier')
 
 # ============================================================
 # 5. Prepare Train / Test arrays
 # ============================================================
 # Sample weights: recent data weighted higher
-WEIGHT_MAP = {2020: 0.3, 2021: 0.4, 2022: 0.5, 2023: 0.8, 2024: 1.0, 2025: 1.2}
+WEIGHT_MAP = {2020: 0.3, 2021: 0.4, 2022: 0.5, 2023: 0.8, 2024: 1.0, 2025: 1.2, 2026: 1.5}
 
 X_train = games_df.loc[train_mask, FEATURE_COLS].astype(float)
 X_test  = games_df.loc[test_mask,  FEATURE_COLS].astype(float)
@@ -483,8 +578,8 @@ for champ in sorted(le.classes_):
 model_export = {
     'metadata': {
         'model_type': 'LightGBM + CatBoost Ensemble v2 (Isotonic Calibration)',
-        'training_years': '2020-2025',
-        'test_year': '2026',
+        'training_years': '2020-2026 (80% stratified per year)',
+        'test_split': '20% stratified per year',
         'training_games': int(len(y_train)),
         'test_games': int(len(y_test)),
         'test_auc': round(final_auc, 4),
@@ -518,6 +613,7 @@ meta = {
     'encoded_cols': ENCODED_COLS,
     'matchup_cols': MATCHUP_COLS,
     'synergy_cols': SYNERGY_COLS,
+    'role_fit_cols': ROLE_FIT_COLS,
     'matchup_tables': {
         role: {str(k): float(v) for k, v in tbl.items()}
         for role, tbl in matchup_tables.items()
@@ -526,6 +622,7 @@ meta = {
         key: {str(k): float(v) for k, v in tbl.items()}
         for key, tbl in synergy_tables.items()
     },
+    'role_fit_table': role_fit_table,
     'base_rate': base_rate_export,
     'synergy_pair_defs': SYNERGY_PAIRS,
     'shap': shap_export,

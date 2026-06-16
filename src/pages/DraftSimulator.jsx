@@ -3,6 +3,8 @@ import SideNavBar from '../components/SideNavBar';
 import { champions } from '../data/champions';
 import { predictWinRate, generateDraftOverview, optimizeTeamAssignment } from '../utils/predictWinRate';
 import { getAIPickOrBan } from '../utils/ollamaClient';
+import { useUserPreferences } from '../context/UserPreferencesContext';
+import { setDraftContext } from '../utils/draftContextStore';
 
 const DRAFT_SEQUENCE = [
   { team: 'blue', action: 'ban', label: 'B1' },
@@ -28,6 +30,7 @@ const DRAFT_SEQUENCE = [
 ];
 
 export default function DraftSimulator() {
+  const { preferences } = useUserPreferences();
   const [blueTeam, setBlueTeam] = useState([
     { role: 'TOP', champion: null },
     { role: 'JUNGLE', champion: null },
@@ -48,6 +51,7 @@ export default function DraftSimulator() {
   const [redBans, setRedBans] = useState([null, null, null, null, null]);
 
   const [draftMode, setDraftMode] = useState('simulation');
+  const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
 
   const [activeSlot, setActiveSlot] = useState(null);
@@ -68,13 +72,22 @@ export default function DraftSimulator() {
 
   useEffect(() => {
     const targetTeam = draftMode === 'blue' ? 'blue' : (draftMode === 'red' ? 'red' : (currentTurnIndex < DRAFT_SEQUENCE.length ? DRAFT_SEQUENCE[currentTurnIndex].team : 'blue'));
-    predictWinRate(blueTeam, redTeam, blueBans, redBans, targetTeam).then(prediction => {
+    predictWinRate(blueTeam, redTeam, blueBans, redBans, targetTeam, preferences).then(prediction => {
       setBlueWinChance(prediction.blueWinChance);
       setPredictionReport(prediction);
     }).catch(err => {
       console.error("Error predicting win rate:", err);
     });
-  }, [blueTeam, redTeam, blueBans, redBans, draftMode, currentTurnIndex]);
+  }, [blueTeam, redTeam, blueBans, redBans, draftMode, currentTurnIndex, preferences]);
+
+  useEffect(() => {
+    setDraftContext({
+      blueWinChance,
+      draftMode,
+      bluePicks: blueTeam.filter(s => s.champion).map(s => s.champion.name).join(', ') || 'none',
+      redPicks: redTeam.filter(s => s.champion).map(s => s.champion.name).join(', ') || 'none',
+    });
+  }, [blueTeam, redTeam, blueWinChance, draftMode]);
 
   useEffect(() => {
     if (currentTurnIndex >= DRAFT_SEQUENCE.length) return;
@@ -142,7 +155,10 @@ export default function DraftSimulator() {
     }
   }, [currentTurnIndex, draftMode, blueTeam, redTeam, blueBans, redBans]);
 
-  const isDraftComplete = currentTurnIndex >= DRAFT_SEQUENCE.length;
+  const isSimulationMode = draftMode === 'simulation';
+  const allPicksFilled = blueTeam.every(s => s.champion) && redTeam.every(s => s.champion);
+  const pickCount = blueTeam.filter(s => s.champion).length + redTeam.filter(s => s.champion).length;
+  const isDraftComplete = isSimulationMode ? allPicksFilled : currentTurnIndex >= DRAFT_SEQUENCE.length;
 
   const currentTurn = currentTurnIndex < DRAFT_SEQUENCE.length ? DRAFT_SEQUENCE[currentTurnIndex] : null;
 
@@ -153,8 +169,9 @@ export default function DraftSimulator() {
 
   const handleSlotClick = (team, index, type, role = null) => {
     if (isAITurnProcessing) return;
+    if (isSimulationMode && type !== 'pick') return;
     
-    if (draftMode !== 'simulation') {
+    if (!isSimulationMode) {
       if (!currentTurn) return;
       if (draftMode === 'blue' && currentTurn.team === 'red') return;
       if (draftMode === 'red' && currentTurn.team === 'blue') return;
@@ -231,7 +248,9 @@ export default function DraftSimulator() {
     ]);
 
     setActiveSlot(null);
-    setCurrentTurnIndex(prev => prev + 1);
+    if (!isSimulationMode) {
+      setCurrentTurnIndex(prev => prev + 1);
+    }
   };
 
   const getChampImageByName = (name) => {
@@ -394,9 +413,11 @@ export default function DraftSimulator() {
 
   const isTeamMode = draftMode === 'blue' || draftMode === 'red';
   const userTeam = draftMode === 'blue' ? 'blue' : draftMode === 'red' ? 'red' : null;
-  const isUserTurn = !isTeamMode || (currentTurn && currentTurn.team === userTeam);
-  const showRecommendedPicks = isUserTurn && currentTurn?.action === 'pick' && predictionReport.recommendedPicks?.length > 0;
-  const showRecommendedBans = isUserTurn && currentTurn?.action === 'ban' && predictionReport.recommendedBans?.length > 0;
+  const isUserTurn = isSimulationMode ? !isAITurnProcessing : (!isTeamMode || (currentTurn && currentTurn.team === userTeam));
+  const showRecommendedPicks = showAISuggestions && activeSlot?.type === 'pick' && predictionReport.recommendedPicks?.length > 0
+    && (isSimulationMode || (isUserTurn && currentTurn?.action === 'pick'));
+  const showRecommendedBans = showAISuggestions && !isSimulationMode && activeSlot?.type === 'ban' && predictionReport.recommendedBans?.length > 0
+    && isUserTurn && currentTurn?.action === 'ban';
   const topSuggestedPick = showRecommendedPicks ? predictionReport.recommendedPicks[0] : null;
   const topSuggestedBan = showRecommendedBans ? predictionReport.recommendedBans[0] : null;
   const showFullReport = isDraftComplete && reportConfirmed;
@@ -425,13 +446,13 @@ export default function DraftSimulator() {
     const bg = teamColor === 'blue' ? 'bg-team-blue/5' : 'bg-team-red/5';
     return (
       <div className={`${bg} rounded-lg p-3 flex flex-col gap-2`}>
-        <span className={`font-label-caps text-[10px] ${accent} font-bold`}>{pair.label}</span>
+        <span className={`font-label-caps text-[13px] ${accent} font-bold`}>{pair.label}</span>
         <div className="flex items-center gap-2 flex-wrap">
           <ChampBadge name={pair.champ1} teamColor={teamColor} size="md" />
           <span className="text-on-surface-variant text-xs">+</span>
           <ChampBadge name={pair.champ2} teamColor={teamColor} size="md" />
         </div>
-        <p className="font-body-sm text-on-surface-variant text-xs leading-relaxed">{pair.analysis}</p>
+        <p className="font-body-sm text-on-surface-variant text-sm leading-relaxed">{pair.analysis}</p>
       </div>
     );
   };
@@ -441,10 +462,6 @@ export default function DraftSimulator() {
       <SideNavBar />
 
       <header className={`fixed top-0 right-0 left-0 h-16 bg-black/60 backdrop-blur-md flex justify-between items-center px-gutter z-50 ml-64 border-b border-white/10 ${activeSlot ? 'hidden' : ''}`}>
-        <div className="flex items-center gap-4">
-          <span className="font-headline-md text-headline-md font-black text-pure-white tracking-tight">Aegis Intelligence</span>
-        </div>
-        
         <div className="flex items-center gap-4 ml-8">
           <label className="text-on-surface-variant font-label-caps text-xs">DRAFT MODE:</label>
           <select 
@@ -456,6 +473,18 @@ export default function DraftSimulator() {
             <option value="blue">Start with Blue Team</option>
             <option value="red">Start with Red Team</option>
           </select>
+          <button
+            type="button"
+            onClick={() => setShowAISuggestions(v => !v)}
+            className={`flex items-center gap-2 text-xs font-label-caps px-3 py-1 rounded border transition ${
+              showAISuggestions
+                ? 'bg-electric-green/20 text-electric-green border-electric-green/40'
+                : 'text-on-surface-variant border-white/10 bg-white/5 hover:bg-white/10'
+            }`}
+          >
+            <span className="material-symbols-outlined text-sm">smart_toy</span>
+            AI SUGGESTIONS {showAISuggestions ? 'ON' : 'OFF'}
+          </button>
           <button onClick={resetDraft} className="text-xs text-on-surface hover:text-white border border-white/10 px-3 py-1 rounded bg-white/5 hover:bg-white/10 transition">
             RESET
           </button>
@@ -502,6 +531,7 @@ export default function DraftSimulator() {
             </div>
           )}
 
+          {!isSimulationMode && (
           <div className="flex justify-between items-center bg-black/40 p-4 rounded-xl border border-white/5">
              <div className="flex gap-2">
                 {blueBans.map((ban, i) => (
@@ -541,6 +571,15 @@ export default function DraftSimulator() {
                 ))}
              </div>
           </div>
+          )}
+
+          {isSimulationMode && (
+            <div className="flex justify-center items-center bg-black/40 p-4 rounded-xl border border-white/5">
+              <span className="font-headline-md font-bold tracking-widest text-electric-green">
+                {isDraftComplete ? 'ALL CHAMPIONS SELECTED' : `SELECT CHAMPIONS — ${pickCount}/10 FILLED`}
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-12 gap-6 items-stretch">
             {/* Blue Team Column */}
@@ -550,7 +589,7 @@ export default function DraftSimulator() {
               </div>
               <div className="space-y-3">
                 {blueTeam.map((slot, idx) => {
-                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'blue' && currentTurn.action === 'pick'));
+                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (isSimulationMode || (currentTurn && currentTurn.team === 'blue' && currentTurn.action === 'pick'));
                   const isActive = (activeSlot?.team === 'blue' && activeSlot?.index === idx && activeSlot?.type === 'pick') || (!activeSlot && currentTurn?.team === 'blue' && currentTurn?.action === 'pick' && idx === nextBluePickIdx);
                   const isSwapSource = swapSource?.team === 'blue' && swapSource?.index === idx;
                   const isSwapTarget = swapTarget?.team === 'blue' && swapTarget?.index === idx;
@@ -636,7 +675,7 @@ export default function DraftSimulator() {
               </div>
               <div className="space-y-3">
                 {redTeam.map((slot, idx) => {
-                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (draftMode === 'simulation' || (currentTurn && currentTurn.team === 'red' && currentTurn.action === 'pick'));
+                  const isSelectable = (!slot.champion && !isAITurnProcessing) && (isSimulationMode || (currentTurn && currentTurn.team === 'red' && currentTurn.action === 'pick'));
                   const isActive = (activeSlot?.team === 'red' && activeSlot?.index === idx && activeSlot?.type === 'pick') || (!activeSlot && currentTurn?.team === 'red' && currentTurn?.action === 'pick' && idx === nextRedPickIdx);
                   const isSwapSource = swapSource?.team === 'red' && swapSource?.index === idx;
                   const isSwapTarget = swapTarget?.team === 'red' && swapTarget?.index === idx;
@@ -702,7 +741,7 @@ export default function DraftSimulator() {
                       <span className={log.team === 'blue' ? 'text-team-blue font-bold' : 'text-team-red font-bold'}>
                         {log.team.toUpperCase()} {log.action}
                       </span>
-                      <ChampBadge name={log.champion} teamColor={log.team} size="sm" />
+                      <span className="text-pure-white text-[11px] font-bold">{log.champion}</span>
                       {log.role && <span className="text-on-surface-variant text-[10px]">({log.role})</span>}
                     </div>
                   </div>
@@ -766,7 +805,9 @@ export default function DraftSimulator() {
                       })
                     ) : (
                       <span className="text-body-sm text-on-surface-variant">
-                        {isTeamMode && !isUserTurn ? 'Awaiting opponent turn...' : currentTurn?.action === 'ban' ? 'Recommendations appear on pick steps' : 'No recommendations available'}
+                        {!showAISuggestions
+                          ? 'Toggle AI Suggestions to see pick recommendations'
+                          : isTeamMode && !isUserTurn ? 'Awaiting opponent turn...' : currentTurn?.action === 'ban' ? 'Recommendations appear on pick steps' : 'No recommendations available'}
                       </span>
                     )}
                   </div>
@@ -797,7 +838,9 @@ export default function DraftSimulator() {
                       })
                     ) : (
                       <span className="text-body-sm text-on-surface-variant">
-                        {isTeamMode && !isUserTurn ? 'Awaiting opponent turn...' : currentTurn?.action === 'pick' ? 'Recommendations appear on ban steps' : 'No recommendations available'}
+                        {!showAISuggestions
+                          ? 'Toggle AI Suggestions to see ban recommendations'
+                          : isTeamMode && !isUserTurn ? 'Awaiting opponent turn...' : currentTurn?.action === 'pick' ? 'Recommendations appear on ban steps' : 'No recommendations available'}
                       </span>
                     )}
                   </div>
@@ -810,7 +853,7 @@ export default function DraftSimulator() {
               <div className="lg:col-span-12 flex flex-col gap-6">
                 <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-black/60 via-surface-container/40 to-black/60 p-6">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-team-blue via-electric-green to-team-red opacity-80" />
-                  <p className="font-label-caps text-[10px] text-electric-green mb-2 flex items-center gap-2">
+                  <p className="font-label-caps text-[13px] text-electric-green mb-2 flex items-center gap-2">
                     <span className="material-symbols-outlined text-sm">summarize</span> EXECUTIVE SUMMARY
                   </p>
                   <p className="font-body-md text-on-surface mb-3">{draftOverview.summary}</p>
@@ -819,28 +862,28 @@ export default function DraftSimulator() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="rounded-xl bg-team-blue/5 p-5">
-                    <p className="font-label-caps text-[10px] text-team-blue mb-4 font-bold">BLUE BAN PHASE</p>
+                    <p className="font-label-caps text-[13px] text-team-blue mb-4 font-bold">BLUE BAN PHASE</p>
                     <ul className="space-y-3">
                       {draftOverview.blueBanAnalysis.map(ban => (
                         <li key={`bb-${ban.slot}`} className="font-body-sm text-on-surface-variant flex items-start gap-3">
                           <span className="text-team-blue font-bold shrink-0">BAN {ban.slot}</span>
                           <div>
                             <ChampBadge name={ban.name} teamColor="blue" size="sm" />
-                            <p className="text-xs mt-1 opacity-80">{ban.analysis}</p>
+                            <p className="text-sm mt-1 opacity-80">{ban.analysis}</p>
                           </div>
                         </li>
                       ))}
                     </ul>
                   </div>
                   <div className="rounded-xl bg-team-red/5 p-5">
-                    <p className="font-label-caps text-[10px] text-team-red mb-4 font-bold">RED BAN PHASE</p>
+                    <p className="font-label-caps text-[13px] text-team-red mb-4 font-bold">RED BAN PHASE</p>
                     <ul className="space-y-3">
                       {draftOverview.redBanAnalysis.map(ban => (
                         <li key={`rb-${ban.slot}`} className="font-body-sm text-on-surface-variant flex items-start gap-3">
                           <span className="text-team-red font-bold shrink-0">BAN {ban.slot}</span>
                           <div>
                             <ChampBadge name={ban.name} teamColor="red" size="sm" />
-                            <p className="text-xs mt-1 opacity-80">{ban.analysis}</p>
+                            <p className="text-sm mt-1 opacity-80">{ban.analysis}</p>
                           </div>
                         </li>
                       ))}
@@ -850,28 +893,28 @@ export default function DraftSimulator() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="rounded-xl bg-gradient-to-b from-team-blue/10 to-transparent p-5">
-                    <p className="font-label-caps text-[10px] text-team-blue mb-4 font-bold">BLUE COMPOSITION</p>
+                    <p className="font-label-caps text-[13px] text-team-blue mb-4 font-bold">BLUE COMPOSITION</p>
                     <ul className="space-y-3">
                       {draftOverview.blueComposition.map(pick => (
                         <li key={`bp-${pick.role}`} className="flex items-start gap-3">
                           <span className="text-team-blue font-label-caps text-[10px] w-14 shrink-0 pt-2">{pick.role}</span>
                           <div className="flex-1">
                             <ChampBadge name={pick.name} teamColor="blue" size="md" />
-                            <p className="text-xs text-on-surface-variant mt-1">{pick.analysis}</p>
+                            <p className="text-sm text-on-surface-variant mt-1">{pick.analysis}</p>
                           </div>
                         </li>
                       ))}
                     </ul>
                   </div>
                   <div className="rounded-xl bg-gradient-to-b from-team-red/10 to-transparent p-5">
-                    <p className="font-label-caps text-[10px] text-team-red mb-4 font-bold">RED COMPOSITION</p>
+                    <p className="font-label-caps text-[13px] text-team-red mb-4 font-bold">RED COMPOSITION</p>
                     <ul className="space-y-3">
                       {draftOverview.redComposition.map(pick => (
                         <li key={`rp-${pick.role}`} className="flex items-start gap-3">
                           <span className="text-team-red font-label-caps text-[10px] w-14 shrink-0 pt-2">{pick.role}</span>
                           <div className="flex-1">
                             <ChampBadge name={pick.name} teamColor="red" size="md" />
-                            <p className="text-xs text-on-surface-variant mt-1">{pick.analysis}</p>
+                            <p className="text-sm text-on-surface-variant mt-1">{pick.analysis}</p>
                           </div>
                         </li>
                       ))}
@@ -880,19 +923,23 @@ export default function DraftSimulator() {
                 </div>
 
                 <div className="rounded-xl bg-black/30 p-5">
-                  <p className="font-label-caps text-[10px] text-electric-green mb-4 font-bold">PICK ORDER REVIEW</p>
+                  <p className="font-label-caps text-[13px] text-electric-green mb-4 font-bold flex items-center gap-2">
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>psychology</span>
+                    AI PICK SUGGESTIONS
+                  </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {draftOverview.pickTimeline.map(entry => (
-                      <div key={`pick-${entry.round}`} className={`rounded-lg p-3 ${entry.team === 'blue' ? 'bg-team-blue/5' : 'bg-team-red/5'}`}>
-                        <div className="text-on-surface-variant text-[10px] mb-2">STEP {entry.round} — {entry.label}</div>
-                        <div className="mb-1">
-                          <span className={`text-[10px] font-bold ${entry.team === 'blue' ? 'text-team-blue' : 'text-team-red'}`}>
-                            {entry.team.toUpperCase()} PICK
+                    {draftOverview.pickTimeline.slice(0, 4).map((entry, idx) => (
+                      <div key={`pick-${entry.round}`} className={`rounded-lg p-3 border ${entry.team === 'blue' ? 'bg-team-blue/5 border-team-blue/20' : 'bg-team-red/5 border-team-red/20'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-on-surface-variant text-[10px]">ROUND {entry.round} · {entry.label}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${entry.team === 'blue' ? 'bg-team-blue/20 text-team-blue' : 'bg-team-red/20 text-team-red'}`}>
+                            {entry.team.toUpperCase()}
                           </span>
                         </div>
-                        <ChampBadge name={entry.champion} teamColor={entry.team} size="sm" />
-                        {entry.role && <span className="text-on-surface-variant text-[10px] ml-1">({entry.role})</span>}
-                        <p className="text-[10px] text-on-surface-variant mt-2 leading-relaxed">{entry.note}</p>
+                        <p className="text-[10px] text-electric-green font-bold mb-1">
+                          → {entry.role ? `${entry.role}: ` : ''}{entry.champion}
+                        </p>
+                        <p className="text-sm text-on-surface-variant leading-relaxed">{entry.note}</p>
                       </div>
                     ))}
                   </div>
@@ -900,8 +947,8 @@ export default function DraftSimulator() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="rounded-xl bg-team-blue/5 p-5">
-                    <p className="font-label-caps text-[10px] text-team-blue mb-2 font-bold">BLUE TEAM SYNERGY</p>
-                    <p className="font-body-sm text-on-surface-variant mb-4 text-xs">{draftOverview.blueSynergy.compArchetype}</p>
+                    <p className="font-label-caps text-[13px] text-team-blue mb-2 font-bold">BLUE TEAM SYNERGY</p>
+                    <p className="font-body-sm text-on-surface-variant mb-4 text-sm">{draftOverview.blueSynergy.compArchetype}</p>
                     <div className="space-y-3">
                       {draftOverview.blueSynergy.pairs.map((pair, i) => (
                         <SynergyPairCard key={`bs-${i}`} pair={pair} teamColor="blue" />
@@ -909,7 +956,7 @@ export default function DraftSimulator() {
                     </div>
                   </div>
                   <div className="rounded-xl bg-team-red/5 p-5">
-                    <p className="font-label-caps text-[10px] text-team-red mb-2 font-bold">RED TEAM SYNERGY</p>
+                    <p className="font-label-caps text-[13px] text-team-red mb-2 font-bold">RED TEAM SYNERGY</p>
                     <p className="font-body-sm text-on-surface-variant mb-4 text-xs">{draftOverview.redSynergy.compArchetype}</p>
                     <div className="space-y-3">
                       {draftOverview.redSynergy.pairs.map((pair, i) => (
@@ -920,10 +967,10 @@ export default function DraftSimulator() {
                 </div>
 
                 <div className="rounded-xl bg-gradient-to-r from-team-blue/5 via-electric-green/5 to-team-red/5 p-5">
-                  <p className="font-label-caps text-[10px] text-electric-green mb-4 font-bold">KEY MATCHUP FACTORS</p>
+                  <p className="font-label-caps text-[13px] text-electric-green mb-4 font-bold">KEY MATCHUP FACTORS</p>
                   <ul className="space-y-2">
                     {draftOverview.keyFactors.map((factor, i) => (
-                      <li key={`kf-${i}`} className="font-body-sm text-on-surface-variant flex items-start gap-2">
+                      <li key={`kf-${i}`} className="text-sm text-on-surface-variant flex items-start gap-2">
                         <span className="material-symbols-outlined text-[14px] mt-0.5 text-electric-green shrink-0">insights</span>
                         {factor}
                       </li>
@@ -932,7 +979,7 @@ export default function DraftSimulator() {
                 </div>
 
                 <div className="rounded-xl bg-black/40 p-5">
-                  <h4 className="text-electric-green mb-4 pb-2 flex justify-between items-center font-label-caps text-[10px]">
+                  <h4 className="text-electric-green mb-4 pb-2 flex justify-between items-center font-label-caps text-[13px]">
                     <span>DRAFT SEQUENCE LOG</span>
                     <span className="text-on-surface-variant">ROUND-BY-ROUND</span>
                   </h4>
@@ -944,7 +991,7 @@ export default function DraftSimulator() {
                           <span className={`text-[10px] font-bold ${log.team === 'blue' ? 'text-team-blue' : 'text-team-red'}`}>
                             {log.team.toUpperCase()} {log.action}
                           </span>
-                          <ChampBadge name={log.champion} teamColor={log.team} size="sm" />
+                          <span className="text-pure-white text-[11px] font-bold">{log.champion}</span>
                           {log.role && <span className="text-on-surface-variant text-[10px]">({log.role})</span>}
                         </div>
                       </div>
@@ -956,6 +1003,7 @@ export default function DraftSimulator() {
             </div>
           </div>
 
+          {!isSimulationMode && (
           <div className="mt-auto pt-6">
             <div className="flex justify-between items-center mb-4">
               <h4 className="font-label-mono text-[10px] text-on-surface-variant uppercase">DRAFT SEQUENCE TIMELINE</h4>
@@ -989,6 +1037,7 @@ export default function DraftSimulator() {
               })}
             </div>
           </div>
+          )}
         </div>
       </main>
 
@@ -1044,8 +1093,8 @@ export default function DraftSimulator() {
                 <div className="flex flex-wrap gap-[6px] justify-center items-start content-start">
                 {sortedChampions.map(champ => {
                   const isPicked = pickedNames.has(champ.name);
-                  const isSuggestedPick = !isPicked && topSuggestedPick === champ.name && roleFilter === 'ALL' && activeSlot.type === 'pick';
-                  const isSuggestedBan = !isPicked && topSuggestedBan === champ.name && roleFilter === 'ALL' && activeSlot.type === 'ban';
+                  const isSuggestedPick = showAISuggestions && !isPicked && topSuggestedPick === champ.name && roleFilter === 'ALL' && activeSlot.type === 'pick';
+                  const isSuggestedBan = showAISuggestions && !isPicked && topSuggestedBan === champ.name && roleFilter === 'ALL' && activeSlot.type === 'ban';
                   const isSuggested = isSuggestedPick || isSuggestedBan;
                   return (
                     <div

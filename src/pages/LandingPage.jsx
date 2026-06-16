@@ -8,7 +8,7 @@ export default function LandingPage() {
 
 <nav className="fixed top-0 right-0 left-0 z-50 flex justify-between items-center px-6 h-16 bg-surface/80 backdrop-blur-xl border-b border-white/10">
 <div className="flex items-center gap-4">
-<span className="font-headline-md text-pure-white font-bold tracking-tight">Aegis Intelligence</span>
+<span className="font-headline-md text-pure-white font-bold tracking-tight">Draft.AI</span>
 </div>
 <div className="flex items-center gap-margin-sm">
 <span className="material-symbols-outlined text-primary cursor-pointer hover:text-electric-green transition-colors duration-200" data-icon="notifications">notifications</span>
@@ -18,7 +18,16 @@ export default function LandingPage() {
 </div>
 </nav>
 
-<section className="relative min-h-screen flex items-center justify-center pt-16 overflow-hidden" style={{'backgroundImage': 'linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(19,19,19,1)), url(\'https://lh3.googleusercontent.com/aida/AP1WRLtqUZZ6rtFKY2zlcKinhWj7SWpOVZDZga2rDT_uWJRpyEYr0TD57uW6h_obF6203iwvS-fX9QwJTXFmy2XIvwULtQ_RLJjy2TVbXgjBugtzTShp6FSywbVpFqwrKAylk96VhcPZv4VfdMJvyR3h8XVa7L0vGVXlU7XBTVvkll-_dyMUi5oqJhnNW57_S7aa_zWjLJp7EKhH3rfN1HAgYqgYuHzUOzJ-W8xzrYF7mL6ZpnlmYmu0bvivlg93\')', 'backgroundSize': 'cover', 'backgroundPosition': 'center'}}>
+<section className="relative min-h-screen flex items-center justify-center pt-16 overflow-hidden" style={{'backgroundColor': '#0a0a0a'}}>
+<video
+  autoPlay
+  loop
+  muted
+  playsInline
+  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, opacity: 0.25, pointerEvents: 'none' }}
+>
+  <source src="/landing_bg.mp4" type="video/mp4" />
+</video>
 <canvas id="hero-canvas" style={{'position': 'absolute', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%', 'zIndex': '1', 'opacity': '0.4', 'pointerEvents': 'none'}}></canvas>
 <div className="absolute inset-0 bg-gradient-to-b from-pure-black/20 via-transparent to-surface z-[1]"></div>
 <div className="relative z-10 px-gutter max-w-container-max mx-auto flex flex-col items-center justify-center text-center">
@@ -28,7 +37,7 @@ export default function LandingPage() {
                     Master the Rift with <br/> Predictive Drafting
                 </h1>
 <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mb-margin-md">
-                    Aegis Intelligence provides elite commanders with an unfair advantage. Leverage our Win Probability Engine and real-time synergy analysis to dominate the champion select phase.
+                    Draft.AI provides elite commanders with an unfair advantage. Leverage our Win Probability Engine and real-time synergy analysis to dominate the champion select phase.
                 </p>
 <div className="flex flex-col sm:flex-row gap-margin-sm w-full sm:w-auto">
 <Link to="/dashboard" className="bg-electric-green text-pure-black font-label-caps text-label-caps px-8 py-4 rounded hover:bg-white transition-all duration-300 font-bold tracking-widest flex items-center justify-center gap-2">

@@ -16,8 +16,7 @@ export default function SideNavBar() {
   return (
     <aside className="hidden md:flex flex-col fixed left-0 top-0 h-screen w-64 bg-surface-container/80 backdrop-blur-xl border-r border-white/15 py-margin-md z-40 shadow-[0_0_40px_rgba(210,255,100,0.05)]">
       <div className="px-6 mb-8 flex flex-col gap-1">
-        <span className="font-headline-md text-headline-md text-electric-green tracking-tighter">AEGIS</span>
-        <span className="font-label-mono text-label-mono text-on-surface-variant tracking-[0.2em]">INTELLIGENCE</span>
+        <span className="font-headline-md text-headline-md text-electric-green tracking-tighter">Draft.AI</span>
       </div>
       <nav className="flex-1 space-y-1">
         <Link className={getLinkClass('/dashboard')} to="/dashboard">
@@ -26,7 +25,7 @@ export default function SideNavBar() {
         </Link>
         <Link className={getLinkClass('/meta')} to="/meta">
           <span className="material-symbols-outlined">insights</span>
-          <span>Meta Insights</span>
+          <span>SHAP Dashboard</span>
         </Link>
         <Link className={getLinkClass('/draft')} to="/draft">
           <span className="material-symbols-outlined">precision_manufacturing</span>

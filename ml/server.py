@@ -90,6 +90,15 @@ class PredictionRequest(BaseModel):
     blueTeam: list[TeamSlot]
     redTeam: list[TeamSlot]
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    preferences: dict | None = None
+    draftContext: dict | None = None
+
 @app.post("/predict")
 def predict_draft(request: PredictionRequest):
     if lgb_model is None or cb_model is None or calibrator is None or le is None:
@@ -141,6 +150,13 @@ def predict_draft(request: PredictionRequest):
                 skey = f'{side}_{r1}_{r2}_synergy_wr'
                 key_str = str((input_data[c1], input_data[c2]))
                 row[skey] = stables.get(skey, {}).get(key_str, base_rate)
+
+            rft = model_meta.get('role_fit_table', {})
+            for col in ROLE_COLS:
+                side, role = col.split('_', 1)
+                champ = input_data.get(col)
+                fit_col = f'{col}_role_fit'
+                row[fit_col] = rft.get(champ, {}).get(role, 0.2) if champ else 0.2
 
             # Context features (neutral defaults for live prediction)
             row['patch_numeric'] = 1401   # approximate current patch
@@ -280,6 +296,17 @@ FEATURE_DISPLAY_NAMES = {
     'red_bot_sup_synergy_wr':  'Red Bot+Support Synergy',
     'red_mid_jng_synergy_wr':  'Red Mid+Jungle Synergy',
     'red_top_jng_synergy_wr':  'Red Top+Jungle Synergy',
+    # Role fit features
+    'blue_top_role_fit': 'Blue Top Role Fit',
+    'blue_jng_role_fit': 'Blue Jungle Role Fit',
+    'blue_mid_role_fit': 'Blue Mid Role Fit',
+    'blue_bot_role_fit': 'Blue Bot Role Fit',
+    'blue_sup_role_fit': 'Blue Support Role Fit',
+    'red_top_role_fit':  'Red Top Role Fit',
+    'red_jng_role_fit':  'Red Jungle Role Fit',
+    'red_mid_role_fit':  'Red Mid Role Fit',
+    'red_bot_role_fit':  'Red Bot Role Fit',
+    'red_sup_role_fit':  'Red Support Role Fit',
     # Context features
     'patch_numeric': 'Patch Number',
     'playoffs':      'Playoff Game',
@@ -397,6 +424,89 @@ def get_shap_data():
         "strongest_champion_red": red_contributors[0] if red_contributors else None,
         "top_feature": feature_importance[0] if feature_importance else None
     }
+
+@app.post("/chat")
+def chat_with_coach(request: ChatRequest):
+    """Proxy chat to Ollama with draft model context and user preferences."""
+    import urllib.request
+    import urllib.error
+
+    prefs = request.preferences or {}
+    ctx = request.draftContext or {}
+    metadata = model_json_data.get("metadata", {}) if model_json_data else {}
+    base_wr = metadata.get("base_blue_win_rate", 0.5283)
+
+    system_prompt = f"""You are Draft.AI, an expert League of Legends draft coach connected to a win-rate prediction model.
+
+Model info:
+- Type: {metadata.get('model_type', 'LightGBM + CatBoost Ensemble')}
+- Base blue win rate: {base_wr * 100:.1f}%
+- Training games: {metadata.get('training_games', 53767)}
+
+User preferences:
+- Playstyle: {prefs.get('playstyle', 'balanced')}
+- Priorities: {', '.join(prefs.get('priorities', [])) or 'none set'}
+- Favorite champions: {', '.join(prefs.get('favoriteChampions', [])) or 'none set'}
+- Ban targets: {', '.join(prefs.get('banTargets', [])) or 'none set'}
+- Risk tolerance: {prefs.get('riskTolerance', 'medium')}
+- Notes: {prefs.get('strategyNotes', 'none')}
+
+Current draft:
+- Blue win chance: {ctx.get('blueWinChance', 50)}%
+- Mode: {ctx.get('draftMode', 'simulation')}
+- Blue picks: {ctx.get('bluePicks', 'none')}
+- Red picks: {ctx.get('redPicks', 'none')}
+
+Help the user refine draft strategy and preferences. Be concise. If you learn new preferences, end with PREFS: followed by JSON."""
+
+    ollama_url = os.environ.get("OLLAMA_CHAT_URL", "http://localhost:11434/api/chat")
+    ollama_model = os.environ.get("OLLAMA_MODEL", "llama3")
+
+    ollama_messages = [{"role": "system", "content": system_prompt}]
+    for msg in request.messages:
+        if msg.role in ("user", "assistant"):
+            ollama_messages.append({"role": msg.role, "content": msg.content})
+
+    payload = json.dumps({
+        "model": ollama_model,
+        "messages": ollama_messages,
+        "stream": False,
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(
+            ollama_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        reply = data.get("message", {}).get("content", "").strip() or data.get("response", "").strip()
+        if not reply:
+            reply = "I couldn't generate a response. Please try again."
+
+        preferences_update = None
+        if "PREFS:" in reply:
+            try:
+                prefs_str = reply.split("PREFS:", 1)[1].strip()
+                json_start = prefs_str.index("{")
+                json_end = prefs_str.rindex("}") + 1
+                preferences_update = json.loads(prefs_str[json_start:json_end])
+            except Exception:
+                preferences_update = None
+
+        return {
+            "reply": reply,
+            "preferences_update": preferences_update,
+            "source": "backend-ollama",
+        }
+    except Exception as e:
+        return {
+            "reply": f"Draft coach unavailable ({e}). Ensure Ollama is running on localhost:11434 with model '{ollama_model}'.",
+            "preferences_update": None,
+            "source": "error",
+        }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

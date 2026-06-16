@@ -600,6 +600,26 @@ video {
   bottom: 1rem;
 }
 
+.bottom-6 {
+  bottom: 1.5rem;
+}
+
+.bottom-24 {
+  bottom: 6rem;
+}
+
+.right-6 {
+  right: 1.5rem;
+}
+
+.hover\:scale-105:hover {
+  transform: scale(1.05);
+}
+
+.transition-transform {
+  transition: transform 0.15s ease;
+}
+
 .left-0 {
   left: 0px;
 }
@@ -674,6 +694,10 @@ video {
 
 .z-\[100\] {
   z-index: 100;
+}
+
+.z-\[200\] {
+  z-index: 200;
 }
 
 .invisible {

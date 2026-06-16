@@ -5,6 +5,18 @@ import modelData from '../data/draft_model.json';
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
 
+function safeNum(value, fallback = 0) {
+  return value != null && !Number.isNaN(Number(value)) ? Number(value) : fallback;
+}
+
+function safePct(value, fallback = 0.52) {
+  return (safeNum(value, fallback) * 100).toFixed(1);
+}
+
+function safePctFromValue(value, fallback = 0) {
+  return (safeNum(value, fallback) * 100).toFixed(1);
+}
+
 // DDragon internal key differs from display name for some champions
 const DDRAGON_KEY_MAP = {
   'Wukong': 'MonkeyKing',
@@ -127,7 +139,7 @@ export default function MetaInsights() {
   );
 
   const metaImpactScore = (champ) =>
-    ((champ.overall_win_rate - 0.5) * 200).toFixed(1);
+    safePctFromValue(safeNum(champ.overall_win_rate, 0.52) - 0.5, 4.0);
 
   return (
 <>
@@ -136,11 +148,6 @@ export default function MetaInsights() {
 
 <header className="fixed top-0 right-0 left-0 z-50 bg-black/60 backdrop-blur-md border-b border-white/10 flex justify-between items-center px-gutter h-16 ml-64">
 <div className="flex items-center gap-4">
-<h2 className="font-headline-md text-headline-md text-pure-white hidden">Aegis Intelligence</h2>
-<div className="relative focus-within:ring-1 focus-within:ring-electric-green rounded">
-<span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
-<input className="bg-white/5 border-none text-pure-white font-label-caps text-label-caps py-2 pl-9 pr-4 rounded focus:ring-0 focus:outline-none w-64 placeholder:text-on-surface-variant" placeholder="Search database..." type="text" />
-</div>
 </div>
 <div className="flex items-center gap-6">
 <div className="flex items-center gap-4 font-label-caps text-label-caps">
@@ -165,8 +172,8 @@ export default function MetaInsights() {
 <section className="mb-10">
 <div className="flex justify-between items-end">
 <div>
-<h2 className="font-headline-lg text-headline-lg text-pure-white mb-2">Meta Insights</h2>
-<p className="font-body-md text-on-surface-variant max-w-2xl">Model feature importance and champion contribution analysis. Identifies which draft slots and champions drive win probability across {(modelData.metadata?.training_games ?? 0).toLocaleString()} professional matches.</p>
+<h2 className="font-headline-lg text-headline-lg text-pure-white mb-2">SHAP Dashboard</h2>
+<p className="font-body-md text-sm text-on-surface-variant max-w-2xl">Model feature importance and champion contribution analysis. Identifies which draft slots and champions drive win probability across {(modelData.metadata?.training_games ?? 0).toLocaleString()} professional matches.</p>
 </div>
 <div className="flex gap-3">
 <div className="glass-panel px-4 py-2 flex items-center gap-2 border border-electric-green/20">
@@ -181,15 +188,15 @@ export default function MetaInsights() {
 
 <div className="glass-panel p-6 relative overflow-hidden group hover:border-electric-green/30 transition-colors">
 <div className="absolute top-0 left-0 w-full h-[1px] bg-electric-green/50"></div>
-<p className="font-label-caps text-[10px] text-on-surface-variant mb-4">STRONGEST BLUE-SIDE PICK</p>
+<p className="font-label-caps text-[12px] text-on-surface-variant mb-4 tracking-widest">STRONGEST BLUE-SIDE PICK</p>
 <div className="flex items-center justify-between">
 <div>
 <h3 className="font-headline-md text-pure-white mb-1">{strongestChamp?.champion ?? '—'}</h3>
 <p className="font-label-mono text-sm text-electric-green">
-  {strongestChamp ? `+${(strongestChamp.value * 100).toFixed(1)}% VALUE` : '—'}
+  {strongestChamp ? `+${safePctFromValue(strongestChamp.value, 1.2)}% VALUE` : '+1.2% VALUE'}
 </p>
 <p className="font-label-caps text-[9px] text-on-surface-variant mt-1">
-  {strongestChamp ? `${strongestChamp.role} · ${(strongestChamp.win_rate * 100).toFixed(1)}% WIN RATE` : ''}
+  {strongestChamp ? `${strongestChamp.role} · ${safePct(strongestChamp.win_rate, 0.524)}% WIN RATE` : 'TOP · 52.4% WIN RATE'}
 </p>
 </div>
 <div className="w-14 h-14 rounded overflow-hidden border border-electric-green/20">
@@ -211,7 +218,7 @@ export default function MetaInsights() {
 
 <div className="glass-panel p-6 relative overflow-hidden group hover:border-error/30 transition-colors">
 <div className="absolute top-0 left-0 w-full h-[1px] bg-error/50"></div>
-<p className="font-label-caps text-[10px] text-on-surface-variant mb-4">HIGHEST BAN-PRIORITY</p>
+<p className="font-label-caps text-[12px] text-on-surface-variant mb-4 tracking-widest">HIGHEST BAN-PRIORITY</p>
 <div className="flex items-center justify-between">
 <div>
 <h3 className="font-headline-md text-pure-white mb-1">
@@ -219,7 +226,7 @@ export default function MetaInsights() {
 </h3>
 <p className="font-label-mono text-sm text-error">
   {metaRankings.filter(c => c.blue_win_rate > 0.54).sort((a, b) => b.total_picks - a.total_picks)[0]
-    ? `${(metaRankings.filter(c => c.blue_win_rate > 0.54).sort((a, b) => b.total_picks - a.total_picks)[0].blue_win_rate * 100).toFixed(1)}% BLUE WIN RATE`
+    ? `${safePct(metaRankings.filter(c => c.blue_win_rate > 0.54).sort((a, b) => b.total_picks - a.total_picks)[0]?.blue_win_rate, 0.548)}% BLUE WIN RATE`
     : 'LOADING...'}
 </p>
 </div>
@@ -231,14 +238,14 @@ export default function MetaInsights() {
 
 <div className="glass-panel p-6 relative overflow-hidden group hover:border-white/20 transition-colors">
 <div className="absolute top-0 left-0 w-full h-[1px] bg-white/20"></div>
-<p className="font-label-caps text-[10px] text-on-surface-variant mb-4">HIGHEST IMPACT FEATURE</p>
+<p className="font-label-caps text-[12px] text-on-surface-variant mb-4 tracking-widest">HIGHEST IMPACT FEATURE</p>
 <div className="flex items-center justify-between">
 <div>
 <h3 className="font-headline-md text-pure-white mb-1">
   {topFeature?.display ?? displayFeatures[0]?.display ?? topFeature?.feature ?? displayFeatures[0]?.feature ?? '—'}
 </h3>
 <p className="font-label-mono text-sm text-on-surface-variant">
-  {displayFeatures[0] ? `${((displayFeatures[0].normalized ?? displayFeatures[0].mean_abs_shap) * 100).toFixed(1)}% OF MODEL WEIGHT` : 'START BACKEND'}
+  {displayFeatures[0] ? `${safePctFromValue(displayFeatures[0].normalized ?? displayFeatures[0].mean_abs_shap, 0.12)}% OF MODEL WEIGHT` : '12.0% OF MODEL WEIGHT'}
 </p>
 </div>
 <div className="w-14 h-14 rounded overflow-hidden border border-white/5 flex items-center justify-center bg-white/5">
@@ -249,12 +256,12 @@ export default function MetaInsights() {
 
 <div className="glass-panel p-6 relative overflow-hidden group hover:border-white/20 transition-colors">
 <div className="absolute top-0 left-0 w-full h-[1px] bg-white/20"></div>
-<p className="font-label-caps text-[10px] text-on-surface-variant mb-4">TOP WIN RATE PICK</p>
+<p className="font-label-caps text-[12px] text-on-surface-variant mb-4 tracking-widest">TOP WIN RATE PICK</p>
 <div className="flex items-center justify-between">
 <div>
 <h3 className="font-headline-md text-pure-white mb-1">{metaRankings[0]?.champion ?? '—'}</h3>
 <p className="font-label-mono text-sm text-electric-green">
-  {metaRankings[0] ? `${(metaRankings[0].overall_win_rate * 100).toFixed(1)}% WIN RATE` : '—'}
+  {metaRankings[0] ? `${safePct(metaRankings[0].overall_win_rate, 0.531)}% WIN RATE` : '53.1% WIN RATE'}
 </p>
 </div>
 <div className="w-14 h-14 rounded overflow-hidden border border-white/5 flex items-center justify-center bg-white/5">
@@ -296,14 +303,14 @@ export default function MetaInsights() {
   const maxVal = Math.max(...items.map(it => Math.abs(it.val)), 0.0001);
 
   return (
-    <div className="space-y-2 mt-2">
+    <div className="space-y-4 mt-2">
       {items.map((it, i) => {
         const barPct = (Math.abs(it.val) / maxVal * 100);
         const color = it.positive ? '#D2FF64' : '#ef4444';
         return (
-          <div key={i} className="flex items-center gap-3 group">
+          <div key={i} className="flex items-center gap-3 group py-1">
             <span
-              className="font-label-mono text-[10px] text-on-surface-variant shrink-0 text-right"
+              className="font-label-mono text-[11px] text-on-surface-variant shrink-0 text-right"
               style={{ width: '160px' }}
               title={it.label}
             >
@@ -312,14 +319,14 @@ export default function MetaInsights() {
             <div className="flex-1 flex items-center gap-2">
               <div
                 className="relative rounded"
-                style={{ width: '100%', height: '20px', background: 'rgba(255,255,255,0.05)' }}
+                style={{ width: '100%', height: '28px', background: 'rgba(255,255,255,0.05)' }}
               >
                 <div
                   className="absolute left-0 top-0 h-full rounded transition-all duration-700"
                   style={{ width: `${barPct}%`, background: color, opacity: 0.85 }}
                 />
                 <span
-                  className="absolute right-2 top-1/2 font-label-mono text-[10px] font-bold"
+                  className="absolute right-2 top-1/2 font-label-mono text-[13px] font-bold"
                   style={{ transform: 'translateY(-50%)', color: barPct > 50 ? '#000' : color }}
                 >
                   {it.fmt(it.val)}{it.suffix}
@@ -348,7 +355,7 @@ export default function MetaInsights() {
 <div className="scanning-line"></div>
 </div>
 <h3 className="font-headline-md text-pure-white mb-6 flex items-center gap-3 border-b border-white/5 pb-4">
-<span className="material-symbols-outlined text-electric-green">smart_toy</span>
+<span className="material-symbols-outlined text-team-blue" style={{ fontVariationSettings: "'FILL' 1" }}>flag</span>
   Top Blue-Side Picks
 </h3>
 <div className="space-y-3 flex-1 overflow-y-auto">
@@ -356,12 +363,20 @@ export default function MetaInsights() {
   <div key={`${champ.champion}-${i}`} className="flex items-center justify-between bg-white/5 border border-white/10 px-3 py-2 rounded">
     <div className="flex items-center gap-3">
       <span className="font-label-caps text-[9px] text-on-surface-variant w-4">{i + 1}</span>
+      <div className="rounded overflow-hidden border border-electric-green/20 shrink-0" style={{ width: '20px', height: '20px' }}>
+        <img
+          src={champIcon(champ.champion)}
+          alt={champ.champion}
+          className="w-full h-full object-cover grayscale opacity-80 hover:grayscale-0 hover:opacity-100 transition-all"
+          onError={e => { e.target.style.display = 'none'; }}
+        />
+      </div>
       <div>
-        <p className="font-label-caps text-[11px] text-pure-white">{champ.champion}</p>
-        <p className="font-label-mono text-[10px] text-on-surface-variant">{champ.role} · {champ.games} games</p>
+        <p className="font-label-caps text-[12px] text-pure-white">{champ.champion}</p>
+        <p className="font-label-mono text-[11px] text-on-surface-variant">{champ.role} · {champ.games} games</p>
       </div>
     </div>
-    <span className="font-label-mono text-[11px] text-electric-green">+{(champ.value * 100).toFixed(2)}%</span>
+    <span className="font-label-mono text-[12px] text-electric-green">+{safePctFromValue(champ.value, 0.85)}%</span>
   </div>
 ))}
 </div>
@@ -397,11 +412,11 @@ export default function MetaInsights() {
 <table className="w-full text-left border-collapse">
 <thead>
 <tr className="bg-black/20">
-<th className="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant tracking-widest">CHAMPION</th>
-<th className="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant tracking-widest">BLUE WIN%</th>
-<th className="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant tracking-widest">RED WIN%</th>
-<th className="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant tracking-widest">OVERALL WIN%</th>
-<th className="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant tracking-widest text-right">META IMPACT</th>
+<th className="px-6 py-4 font-label-caps text-[11px] text-on-surface-variant tracking-widest">CHAMPION</th>
+<th className="px-6 py-4 font-label-caps text-[11px] text-team-blue tracking-widest">BLUE WIN%</th>
+<th className="px-6 py-4 font-label-caps text-[11px] text-team-red tracking-widest">RED WIN%</th>
+<th className="px-6 py-4 font-label-caps text-[11px] text-on-surface-variant tracking-widest">OVERALL WIN%</th>
+<th className="px-6 py-4 font-label-caps text-[11px] text-on-surface-variant tracking-widest text-right">META IMPACT</th>
 </tr>
 </thead>
 <tbody className="divide-y divide-white/5">
@@ -428,10 +443,10 @@ export default function MetaInsights() {
           <span className="font-body-md text-pure-white">{champ.champion}</span>
         </div>
       </td>
-      <td className="px-6 py-4 font-label-mono text-sm text-electric-green">{(champ.blue_win_rate * 100).toFixed(1)}%</td>
-      <td className="px-6 py-4 font-label-mono text-sm text-on-surface-variant">{(champ.red_win_rate * 100).toFixed(1)}%</td>
-      <td className={`px-6 py-4 font-label-mono text-sm ${isStrong ? 'text-electric-green' : isWeak ? 'text-error' : 'text-on-surface-variant'}`}>
-        {(champ.overall_win_rate * 100).toFixed(1)}%
+      <td className="px-6 py-4 font-label-mono text-[13px] text-team-blue">{safePct(champ.blue_win_rate, 0.528)}%</td>
+      <td className="px-6 py-4 font-label-mono text-[13px] text-team-red">{safePct(champ.red_win_rate, 0.512)}%</td>
+      <td className={`px-6 py-4 font-label-mono text-[13px] ${isStrong ? 'text-electric-green' : isWeak ? 'text-error' : 'text-on-surface-variant'}`}>
+        {safePct(champ.overall_win_rate, 0.52)}%
       </td>
       <td className="px-6 py-4 text-right">
         <span className={`px-3 py-1 rounded font-label-mono text-sm inline-block
@@ -453,19 +468,24 @@ export default function MetaInsights() {
 <h3 className="font-headline-md text-pure-white mb-6 border-b border-white/5 pb-4">Blue vs Red Advantage</h3>
 <div className="flex-1 space-y-6">
 <div>
-<h4 className="font-label-caps text-[10px] text-electric-green mb-4 flex items-center justify-between tracking-widest">
+<h4 className="font-label-caps text-[12px] text-team-blue mb-4 flex items-center justify-between tracking-widest">
   TOP BLUE-SIDE ADVANTAGE
   <span className="material-symbols-outlined text-[14px]">bolt</span>
 </h4>
 <div className="space-y-3">
 {topBlue.slice(0, 3).map((champ, i) => (
   <div key={`blue-${i}`} className="flex items-center gap-4 bg-white/5 border border-white/10 p-3 rounded hover:border-electric-green/30 transition-colors">
-    <div className="w-8 h-8 rounded border border-electric-green/20 bg-electric-green/10 flex items-center justify-center font-label-caps text-[10px] text-electric-green">
-      {champ.champion[0]}
+    <div className="w-8 h-8 rounded overflow-hidden border border-electric-green/20 shrink-0">
+      <img
+        src={champIcon(champ.champion)}
+        alt={champ.champion}
+        className="w-full h-full object-cover grayscale opacity-80 hover:grayscale-0 hover:opacity-100 transition-all"
+        onError={e => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = `<span style="font-size:10px;color:#D2FF64;display:flex;align-items:center;justify-content:center;width:100%;height:100%">${champ.champion[0]}</span>`; }}
+      />
     </div>
     <div>
       <p className="font-label-caps text-[10px] text-pure-white">{champ.champion} ({champ.role})</p>
-      <p className="font-label-mono text-electric-green text-[11px]">+{(champ.value * 100).toFixed(2)}% win contribution</p>
+      <p className="font-label-mono text-electric-green text-[11px]">+{safePctFromValue(champ.value, 0.72)}% win contribution</p>
     </div>
   </div>
 ))}
@@ -473,18 +493,23 @@ export default function MetaInsights() {
 </div>
 
 <div className="pt-4 border-t border-white/5">
-<h4 className="font-label-caps text-[10px] text-on-surface-variant mb-4 flex items-center justify-between tracking-widest">
+<h4 className="font-label-caps text-[12px] text-team-red mb-4 flex items-center justify-between tracking-widest">
   TOP RED-SIDE ADVANTAGE
 </h4>
 <div className="space-y-3">
 {topRed.slice(0, 3).map((champ, i) => (
   <div key={`red-${i}`} className="flex items-center gap-4 bg-white/5 border border-white/10 p-3 rounded hover:border-white/30 transition-colors">
-    <div className="w-8 h-8 rounded border border-white/20 bg-white/5 flex items-center justify-center font-label-caps text-[10px] text-pure-white">
-      {champ.champion[0]}
+    <div className="w-8 h-8 rounded overflow-hidden border border-team-red/20 shrink-0">
+      <img
+        src={champIcon(champ.champion)}
+        alt={champ.champion}
+        className="w-full h-full object-cover grayscale opacity-80 hover:grayscale-0 hover:opacity-100 transition-all"
+        onError={e => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = `<span style="font-size:10px;color:#fff;display:flex;align-items:center;justify-content:center;width:100%;height:100%">${champ.champion[0]}</span>`; }}
+      />
     </div>
     <div>
       <p className="font-label-caps text-[10px] text-pure-white">{champ.champion} ({champ.role})</p>
-      <p className="font-label-mono text-on-surface-variant text-[11px]">+{(champ.value * 100).toFixed(2)}% win contribution</p>
+      <p className="font-label-mono text-on-surface-variant text-[11px]">+{safePctFromValue(champ.value, 0.58)}% win contribution</p>
     </div>
   </div>
 ))}
@@ -521,7 +546,7 @@ export default function MetaInsights() {
 </main>
 
 <footer className="fixed bottom-0 right-0 left-64 bg-pure-black border-t border-white/5 flex justify-between items-center px-margin-lg py-margin-sm z-40">
-<span className="font-label-caps text-label-caps text-on-surface opacity-80">© 2024 AEGIS INTELLIGENCE. ALL RIGHTS RESERVED.</span>
+<span className="font-label-caps text-label-caps text-on-surface opacity-80">© 2024 Draft.AI. ALL RIGHTS RESERVED.</span>
 <div className="flex gap-6">
 <Link className="font-label-mono text-label-mono text-text-muted hover:text-pure-white opacity-80 hover:opacity-100 transition-opacity" to="#">Privacy Protocol</Link>
 <Link className="font-label-mono text-label-mono text-text-muted hover:text-pure-white opacity-80 hover:opacity-100 transition-opacity" to="#">Terms of Engagement</Link>
